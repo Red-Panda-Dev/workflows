@@ -7,7 +7,7 @@ Cloudflare Browser Rendering, with pagination support.
 import asyncio
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import mistralai.workflows as workflows
 
@@ -26,7 +26,7 @@ async def scrape_single_page(
     account_id: str,
     api_token: str,
     timeout: int,
-) -> List[DividendRecord]:
+) -> Optional[List[DividendRecord]]:
     """Activity to scrape a single page and return dividend records.
 
     Args:
@@ -37,14 +37,14 @@ async def scrape_single_page(
         timeout: Request timeout in seconds
 
     Returns:
-        List of DividendRecord objects. Empty list if page failed or had no results.
+        List of DividendRecord objects. None if page failed, empty list if no results.
     """
     client = CloudflareClient(account_id, api_token)
     result: ScrapeResult = await client.scrape_page(page, url, timeout)
 
     if not result.success:
         logger.warning("Page %d failed: %s", page, result.error)
-        return []
+        return None
 
     return result.items
 

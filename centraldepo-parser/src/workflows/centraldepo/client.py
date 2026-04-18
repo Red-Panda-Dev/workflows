@@ -113,7 +113,10 @@ class CloudflareClient:
                             text = await resp.text()
                             error_msg = f"HTTP {resp.status}: {text[:200]}"
                             logger.warning("Page %d attempt %d/%d: %s", page, attempt, MAX_RETRIES, error_msg)
-                            return ScrapeResult(page=page, items=[], success=False, error=error_msg)
+                            last_error = error_msg
+                            if attempt < MAX_RETRIES:
+                                await asyncio.sleep(RETRY_BACKOFF_BASE**attempt)
+                            continue
 
                         # Success - parse response
                         data = await resp.json()
