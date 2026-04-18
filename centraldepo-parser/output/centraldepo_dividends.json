@@ -1,9 +1,130 @@
 {
-  "results": [],
+  "results": [
+    {
+      "company_name": "ЗАО \"Мегадом\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20260407.zip"
+      ]
+    },
+    {
+      "company_name": "ЗАО \"Партнер и К\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Partner_I_K_dividend_20260330.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Агрокомбинат Горки\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Agrokombinat_Gorki_dividend_20260409.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Агрохимпроект\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Agrohimproekt_dividend_20260330.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Брагинка\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Braginka_dividend_20260407.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"ГомельАТЭП\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/GomelATEP_dividend_20260401.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Гомельский белково-жировой завод\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/GBZhZ_dividend_20260409.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Жлобинсельхозхимия\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Zhlobinselhozhimiya_dividend_03042026.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Лиданефтепродукт\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Lidanefteprodukt_dividend_20260403.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"МТК \"Полесье\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/MTK_Polesye_dividend_20260410.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Магазин №45\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Magazin_N45_dividend_20260406.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Малоберестовицкий элитхоз\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Malobieriestovickij_Elitchoz_dividend_20260403.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Мозырьхимсервис\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Mozyrhimservis_dividend_20260326.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Мостстройкомплект\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Moststroykomplekt_dividend_20260406.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Новогрудское СМУ\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Novogrudskoe_SMU_dividend_20260331.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Пуховичинефтепродукт\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Puhovochinefteprodukt_dividend_20260403.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"СП-СТрой\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/SPStroy_dividend_20260330.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Спорово\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Sporovo_dividend_20260330.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"ТЦ Альтенбург\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/TC_Altenburg_dividend_20260331.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Универсалторг\" г. Новолукомля",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Universaltorg_Novolukomlya_dividend_20260402.zip"
+      ]
+    }
+  ],
   "stats": {
-    "total_pages_scraped": 1,
-    "total_records": 0,
-    "companies_found": 0,
+    "total_pages_scraped": 3,
+    "total_records": 20,
+    "companies_found": 20,
     "duplicate_urls_removed": 0
   }
 }
