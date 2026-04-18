@@ -329,17 +329,6 @@ class CloudflareClient:
         if use_manager:
             session = self.session_manager.session
             api_url = self.session_manager.api_url
-            # Apply circuit breaker check
-            if not self.session_manager.circuit_breaker.can_request():
-                return (
-                    ScrapeResult(
-                        page=page,
-                        items=[],
-                        success=False,
-                        error="Circuit breaker open - API unavailable",
-                    ),
-                    False,
-                )
         else:
             session = aiohttp.ClientSession()
             api_url = self.api_url
@@ -386,9 +375,7 @@ class CloudflareClient:
                     error_msg = f"HTTP {resp.status}: {text[:200]}"
                     logger.warning("Page %d attempt %d/%d: %s", page, attempt, MAX_RETRIES, error_msg)
 
-                    if use_manager:
-                        self.session_manager.circuit_breaker.record_failure()
-
+                    # Server errors (5xx) are also retryable per-page
                     # Calculate backoff: exponential but capped
                     backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
                     if attempt < MAX_RETRIES:
@@ -398,15 +385,15 @@ class CloudflareClient:
                         attempt < MAX_RETRIES,
                     )
 
-                # Handle client errors
+                # Handle client errors (4xx) - these are page-specific issues, not API failures
+                # Do NOT trigger circuit breaker - allow retries
                 if resp.status != 200:
                     text = await resp.text()
                     error_msg = f"HTTP {resp.status}: {text[:200]}"
                     logger.warning("Page %d attempt %d/%d: %s", page, attempt, MAX_RETRIES, error_msg)
 
-                    if use_manager:
-                        self.session_manager.circuit_breaker.record_failure()
-
+                    # Client errors (4xx) like 422 (navigation timeout) are retryable
+                    # Only 5xx errors trigger circuit breaker
                     return (
                         ScrapeResult(page=page, items=[], success=False, error=error_msg),
                         attempt < MAX_RETRIES,
@@ -421,9 +408,8 @@ class CloudflareClient:
                         error_msg = str(error_msg)
                     logger.error("Page %d: Cloudflare API returned success=false: %s", page, error_msg)
 
-                    if use_manager:
-                        self.session_manager.circuit_breaker.record_failure()
-
+                    # Cloudflare API returned success=false - this is a page-level issue
+                    # (e.g., navigation timeout, element not found). Retry the page.
                     return (
                         ScrapeResult(
                             page=page,
@@ -431,7 +417,7 @@ class CloudflareClient:
                             success=False,
                             error=f"CF API error: {error_msg}",
                         ),
-                        False,
+                        attempt < MAX_RETRIES,
                     )
 
                 result_list = data.get("result") or []
@@ -439,7 +425,6 @@ class CloudflareClient:
                     logger.info("Page %d: Empty result list", page)
 
                     if use_manager:
-                        self.session_manager.circuit_breaker.record_success()
                         await self.session_manager.rate_limiter.adjust_on_success()
 
                     return (ScrapeResult(page=page, items=[], success=True, error=None), False)
@@ -455,7 +440,7 @@ class CloudflareClient:
                     logger.warning("Page %d: No %s selector block in response", page, SELECTOR)
 
                     if use_manager:
-                        self.session_manager.circuit_breaker.record_success()
+                        await self.session_manager.rate_limiter.adjust_on_success()
 
                     return (ScrapeResult(page=page, items=[], success=True, error=None), False)
 
@@ -465,7 +450,6 @@ class CloudflareClient:
                 logger.info("Page %d: Successfully scraped %d items", page, len(records))
 
                 if use_manager:
-                    self.session_manager.circuit_breaker.record_success()
                     await self.session_manager.rate_limiter.adjust_on_success()
 
                 return (ScrapeResult(page=page, items=records, success=True, error=None), False)
@@ -474,9 +458,8 @@ class CloudflareClient:
             error = f"{type(e).__name__}: {e}"
             logger.warning("Page %d attempt %d/%d: Network error: %s", page, attempt, MAX_RETRIES, error)
 
-            if use_manager:
-                self.session_manager.circuit_breaker.record_failure()
-
+            # Network errors are retryable per-page, don't trigger circuit breaker
+            # Only after all retries fail will this page be marked as failed
             if attempt < MAX_RETRIES:
                 backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
                 await asyncio.sleep(backoff)

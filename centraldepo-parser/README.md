@@ -317,6 +317,16 @@ The MD5-based folder names ensure:
 - `pytest>=8.0` — Testing framework
 - `watchdog>=4.0` — File watching for dev worker
 
+### System Dependencies (Optional)
+For document conversion of binary `.doc` files (Microsoft Word 97-2003 format), the `textract` library requires system-level tools:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install antiword catdoc
+```
+
+Without these tools, `.doc` file conversion will use fallback methods that may not extract all text properly.
+
 ## Troubleshooting
 
 ### Common Issues
