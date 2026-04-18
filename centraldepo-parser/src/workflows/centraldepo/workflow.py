@@ -6,6 +6,7 @@ Cloudflare Browser Rendering, with pagination support.
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -262,6 +263,76 @@ async def extract_all_downloaded_archives(
 
 
 @workflows.activity()
+async def generate_final_json(
+    results: List["CompanyResult"],
+    output_root: str,
+) -> str:
+    """Activity to generate final JSON file mapping hashed folders to company info and MD files.
+
+    Creates a file at output_root/final_mapping.json with structure:
+    {
+        "<md5_hash_folder>": {
+            "company_name": "<lowercase company name>",
+            "files_paths": ["<relative path to md file>", ...]
+        },
+        ...
+    }
+
+    Args:
+        results: List of CompanyResult objects
+        output_root: Root output directory path (as string, can be Path or str)
+
+    Returns:
+        Path to the generated final JSON file
+    """
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from .downloader import get_company_folder_name
+
+    final_data = {}
+    output_root_path = Path(output_root)
+    output_root_path.mkdir(parents=True, exist_ok=True)
+
+    for company_result in results:
+        company_name_lower = company_result.company_name.lower()
+        folder_name = get_company_folder_name(company_name_lower)
+        folder_path = output_root_path / folder_name
+
+        # Find all MD files in the company folder
+        md_files = []
+        if folder_path.exists():
+            for item in folder_path.iterdir():
+                if item.is_file() and item.suffix.lower() == ".md":
+                    # Use relative path from output_root for portability
+                    rel_path = str(item.relative_to(output_root_path))
+                    md_files.append(rel_path)
+
+        final_data[folder_name] = {
+            "company_name": company_name_lower,
+            "files_paths": sorted(md_files),
+        }
+
+    # Save to final JSON file
+    final_output_path = output_root_path / "final_mapping.json"
+
+    # Atomic write using temp file
+    fd, tmp_path = tempfile.mkstemp(dir=str(final_output_path.parent), prefix=".final_mapping_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(final_data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, str(final_output_path))
+        logger.info("Generated final mapping JSON with %d companies at %s", len(final_data), final_output_path)
+        return str(final_output_path)
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise RuntimeError(f"Failed to save final JSON: {e}") from e
+
+
+@workflows.activity()
 async def convert_all_downloaded_files(
     results: List["CompanyResult"],
     output_path: str,
@@ -276,14 +347,7 @@ async def convert_all_downloaded_files(
         output_path: Path to the JSON output file (used to find output_root)
 
     Returns:
-        Dictionary with conversion statistics:
-        - total_companies
-        - total_files_attempted
-        - total_successful
-        - total_failed
-        - total_skipped
-        - failed_files
-        - by_company
+        Dictionary with conversion statistics including cleaned_up_files list.
     """
     from pathlib import Path
 
@@ -292,8 +356,11 @@ async def convert_all_downloaded_files(
     output_root = Path(output_path).parent
     results_list = [(r.company_name, r.urls) for r in results]
 
-    # overwrite=True per user decision
-    stats = await convert_all_files(results_list, output_root, overwrite=True)
+    # Read cleanup flag from environment, default to true
+    cleanup_source = os.environ.get("CLEANUP_SOURCE_FILES", "true").lower() == "true"
+
+    # overwrite=True per user decision, pass cleanup flag
+    stats = await convert_all_files(results_list, output_root, overwrite=True, cleanup_source=cleanup_source)
 
     logger.info(
         "Conversion complete: %d files attempted, %d successful, %d failed, %d skipped",
@@ -308,6 +375,12 @@ async def convert_all_downloaded_files(
             "Failed to convert %d files: %s",
             len(stats["failed_files"]),
             stats["failed_files"][:5],
+        )
+
+    if cleanup_source and stats.get("cleaned_up_files"):
+        logger.info(
+            "Cleaned up %d source files after successful conversion",
+            len(stats["cleaned_up_files"]),
         )
 
     return stats
@@ -492,15 +565,19 @@ class CentralDepoWorkflow:
         conversion_stats = await convert_all_downloaded_files(results, saved_path)
         output.conversion_stats = conversion_stats
 
+        # Generate final JSON mapping hashed folders to company info and MD files
+        final_json_path = await generate_final_json(results, str(Path(saved_path).parent))
+
         logger.info(
             "Workflow complete: %d companies, %d total records, %d files downloaded, "
-            "%d archives extracted, %d files converted to MD, saved to %s",
+            "%d archives extracted, %d files converted to MD, "
+            "final mapping saved to %s",
             len(results),
             len(all_records),
             download_stats.get("successful", 0),
             extraction_stats.get("successful", 0),
             conversion_stats.get("total_successful", 0),
-            input.output_path,
+            final_json_path,
         )
 
         return output

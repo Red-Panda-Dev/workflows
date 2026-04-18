@@ -12,7 +12,9 @@ from typing import List, Tuple
 import docx2txt
 import xlrd
 from docx import Document
+from mistralai.client.models.file import File
 from mistralai.workflows.plugins.mistralai import OCRRequest, mistralai_ocr
+from mistralai.workflows.plugins.mistralai.utils import get_mistral_client
 
 from .config import MAX_CONCURRENT_CONVERSIONS
 from .downloader import get_company_folder_name
@@ -70,7 +72,17 @@ def _extract_docx(file_path: Path) -> str:
 
 
 def _extract_doc(file_path: Path) -> str:
-    """Extract text from .doc file using docx2txt.
+    """Extract text from .doc file using multiple methods.
+
+    Tries multiple approaches in order:
+    1. python-docx (for .docx files mislabeled as .doc)
+    2. docx2txt (for .docx files)
+    3. textract with antiword/catdoc (for binary .doc - requires system deps)
+    4. Raw binary reading with common encodings
+
+    Note: For binary .doc support with textract, install:
+      - Ubuntu: sudo apt-get install antiword catdoc
+      - Mac: brew install antiword
 
     Args:
         file_path: Path to the .doc file
@@ -78,7 +90,41 @@ def _extract_doc(file_path: Path) -> str:
     Returns:
         Extracted text as string
     """
-    return docx2txt.process(file_path)
+    # Try 1: python-docx (for .docx files mislabeled as .doc)
+    try:
+        doc = Document(file_path)
+        return "\n".join([p.text for p in doc.paragraphs])
+    except Exception:
+        pass
+
+    # Try 2: docx2txt
+    try:
+        return docx2txt.process(file_path)
+    except Exception:
+        pass
+
+    # Try 3: textract with antiword/catdoc for binary .doc
+    try:
+        import textract
+
+        content = textract.process(str(file_path))
+        if content:
+            return content.decode("utf-8", errors="replace")
+    except Exception:
+        pass
+
+    # Try 4: Raw binary reading with common encodings
+    try:
+        raw = file_path.read_bytes()
+        # Try UTF-8, cp1251 (Russian), cp1252 (Windows)
+        for encoding in ["utf-8", "cp1251", "cp1252", "iso-8859-1", "utf-16"]:
+            try:
+                return raw.decode(encoding, errors="replace")
+            except UnicodeDecodeError:
+                continue
+        return raw.decode("utf-8", errors="replace")
+    except Exception as e:
+        raise ValueError(f"Failed to extract text from {file_path}: {e}") from e
 
 
 def _extract_xls(file_path: Path) -> str:
@@ -109,7 +155,7 @@ def _extract_xls(file_path: Path) -> str:
     return "\n".join(md_lines)
 
 
-def convert_to_markdown(file_path: Path, overwrite: bool = True) -> Tuple[bool, str | None, str | None]:
+def convert_to_markdown(file_path: Path, overwrite: bool = True) -> Tuple[bool, str | None, str | None, Path | None]:
     """Convert a single file to markdown based on its extension.
 
     Args:
@@ -117,12 +163,13 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> Tuple[bool, 
         overwrite: If True, overwrite existing .md file (default: True)
 
     Returns:
-        Tuple of (success, markdown_content_or_none, error_msg_or_none)
+        Tuple of (success, markdown_content_or_none, error_msg_or_none, md_path_or_none)
         - success: True if conversion succeeded and file was written
         - markdown_content: The extracted content (if successful)
         - error_msg: Error message (if failed) or special codes:
           - "IS_PDF": File is PDF, skip (handled separately)
           - "MD_ALREADY_EXISTS": MD file exists and overwrite=False
+        - md_path: Path to the generated MD file (if successful), None otherwise
     """
     ext = file_path.suffix.lower()
 
@@ -135,45 +182,56 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> Tuple[bool, 
             content = _extract_xls(file_path)
         elif ext == ".pdf":
             # PDF handled separately via OCR
-            return (False, None, "IS_PDF")
+            return (False, None, "IS_PDF", None)
         else:
-            return (False, None, f"Unsupported extension: {ext}")
+            return (False, None, f"Unsupported extension: {ext}", None)
 
         # Write MD file
         md_path = file_path.with_suffix(".md")
 
         if md_path.exists() and not overwrite:
-            return (False, None, "MD_ALREADY_EXISTS")
+            return (False, None, "MD_ALREADY_EXISTS", None)
 
         md_path.write_text(content, encoding="utf-8")
         logger.debug("Converted %s to %s", file_path, md_path)
-        return (True, content, None)
+        return (True, content, None, md_path)
 
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}"
         logger.error("Failed to convert %s: %s", file_path, error_msg)
-        return (False, None, error_msg)
+        return (False, None, error_msg, None)
 
 
 async def process_pdf_files(
     folder_path: Path,
     overwrite: bool = True,
-) -> Tuple[int, int, List[str], int]:
+) -> Tuple[int, int, List[str], int, List[Tuple[Path, Path]]]:
     """Process all PDF files in a folder with Mistral OCR.
+
+    Uses the Files API to upload PDFs first, then references them by file_id
+    in the OCR request. This is the proper way to handle local files with
+    the Mistral OCR API which requires file_id to be a UUID.
 
     Args:
         folder_path: Path to folder containing PDF files
         overwrite: Whether to overwrite existing .md files (default: True)
 
     Returns:
-        Tuple of (success_count, failure_count, failed_files, skipped_count)
+        Tuple of (success_count, failure_count, failed_files, skipped_count, converted_pairs)
+        where converted_pairs is a list of (pdf_path, md_path) tuples for successful conversions
     """
     pdf_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".pdf"]
 
     if not pdf_files:
-        return (0, 0, [], 0)
+        return (0, 0, [], 0, [])
 
+    # Get Mistral client for file uploads
+    from mistralai.client.models import FileChunk
+
+    mistral_client = get_mistral_client()
     results = []
+    converted_pairs: List[Tuple[Path, Path]] = []
+
     for pdf_path in pdf_files:
         try:
             md_path = pdf_path.with_suffix(".md")
@@ -183,19 +241,36 @@ async def process_pdf_files(
                 results.append((False, "MD_ALREADY_EXISTS", str(pdf_path)))
                 continue
 
+            # Upload file to Mistral to get a file_id (UUID)
+            # The Files API expects a File model instance
+            # Use upload_async since we're in an async context
             with open(pdf_path, "rb") as f:
-                content = f.read()
+                file_resp = await mistral_client.files.upload_async(
+                    file=File(
+                        fileName=pdf_path.name,
+                        content=f,
+                    ),
+                    purpose="ocr",
+                )
+
+            # Use FileChunk with the actual UUID file_id
+            file_chunk = FileChunk(file_id=file_resp.id)
 
             request = OCRRequest(
                 model="mistral-ocr-latest",
-                document=content,
+                document=file_chunk,
             )
             result = await mistralai_ocr(request)
 
+            # Extract text from OCR response pages
+            # OCR response has pages array, each with markdown content
+            ocr_text = "\n\n".join(page.markdown for page in result.pages)
+
             # Write MD file
-            md_path.write_text(result.text, encoding="utf-8")
-            logger.info("OCR converted %s to %s", pdf_path, md_path)
+            md_path.write_text(ocr_text, encoding="utf-8")
+            logger.info("OCR converted %s to %s (%d chars)", pdf_path, md_path, len(ocr_text))
             results.append((True, None, str(pdf_path)))
+            converted_pairs.append((pdf_path, md_path))
 
         except Exception as e:
             error_msg = f"{type(e).__name__}: {e}"
@@ -207,7 +282,7 @@ async def process_pdf_files(
     skipped = sum(1 for _, err, _ in results if err == "MD_ALREADY_EXISTS")
     failed_files = [path for suc, err, path in results if not suc and err != "MD_ALREADY_EXISTS"]
 
-    return (success, failure, failed_files, skipped)
+    return (success, failure, failed_files, skipped, converted_pairs)
 
 
 async def convert_company_files(
@@ -215,7 +290,7 @@ async def convert_company_files(
     folder_path: Path,
     semaphore: asyncio.Semaphore,
     overwrite: bool = True,
-) -> Tuple[str, int, int, List[str]]:
+) -> Tuple[str, int, int, List[str], List[Tuple[Path, Path]]]:
     """Convert all eligible non-PDF files in a company folder.
 
     Args:
@@ -225,18 +300,19 @@ async def convert_company_files(
         overwrite: Whether to overwrite existing .md files (default: True)
 
     Returns:
-        Tuple of (company_name, success_count, failure_count, failed_files)
+        Tuple of (company_name, success_count, failure_count, failed_files, converted_pairs)
+        where converted_pairs is a list of (source_path, md_path) tuples for successful conversions
     """
     if not folder_path.exists():
         logger.warning("Company folder does not exist: %s", folder_path)
-        return (company_name, 0, 0, [])
+        return (company_name, 0, 0, [], [])
 
     # Find non-PDF files only
     files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() != ".pdf"]
 
     if not files:
         logger.debug("No non-PDF files found for %s", company_name)
-        return (company_name, 0, 0, [])
+        return (company_name, 0, 0, [], [])
 
     logger.info("Found %d non-PDF files to convert for %s", len(files), company_name)
 
@@ -248,10 +324,21 @@ async def convert_company_files(
 
     results = await asyncio.gather(*tasks)
 
-    # Filter out PDF markers
-    success = sum(1 for suc, _, err in results if suc and err != "IS_PDF")
-    failure = sum(1 for suc, _, err in results if not suc and err != "IS_PDF")
-    failed_files = [str(files[i]) for i, (suc, _, err) in enumerate(results) if not suc and err != "IS_PDF"]
+    # Filter out PDF markers and track successful conversions
+    converted_pairs: List[Tuple[Path, Path]] = []
+    success = 0
+    failure = 0
+    failed_files = []
+
+    for i, file_path in enumerate(files):
+        suc, _, err, md_path = results[i]
+        if suc and err != "IS_PDF":
+            success += 1
+            if md_path:
+                converted_pairs.append((file_path, md_path))
+        elif not suc and err != "IS_PDF":
+            failure += 1
+            failed_files.append(str(file_path))
 
     logger.info(
         "Converted %d/%d non-PDF files for %s (%d failed)",
@@ -261,13 +348,14 @@ async def convert_company_files(
         failure,
     )
 
-    return (company_name, success, failure, failed_files)
+    return (company_name, success, failure, failed_files, converted_pairs)
 
 
 async def convert_all_files(
     results: List[Tuple[str, List[str]]],
     output_root: Path,
     overwrite: bool = True,
+    cleanup_source: bool = True,
 ) -> dict:
     """Convert all files for all companies to markdown.
 
@@ -278,6 +366,8 @@ async def convert_all_files(
         results: List of (company_name, urls) tuples
         output_root: Root output directory
         overwrite: Whether to overwrite existing .md files (default: True)
+        cleanup_source: If True, remove source files (PDF, DOC, DOCX, XLS) after
+            successful MD conversion. Failed files are kept. (default: True)
 
     Returns:
         Dictionary with conversion statistics:
@@ -288,6 +378,7 @@ async def convert_all_files(
         - total_skipped
         - failed_files (list)
         - by_company (per-company breakdown)
+        - cleaned_up_files (list) - NEW: list of source files removed
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONVERSIONS)
 
@@ -315,7 +406,7 @@ async def convert_all_files(
 
     pdf_results = await asyncio.gather(*pdf_tasks)
 
-    # Aggregate stats
+    # Aggregate stats and collect all converted pairs for cleanup
     stats = {
         "total_companies": len(results),
         "total_files_attempted": 0,
@@ -324,10 +415,13 @@ async def convert_all_files(
         "total_skipped": 0,
         "failed_files": [],
         "by_company": {},
+        "cleaned_up_files": [],
     }
 
+    all_converted_pairs: List[Tuple[Path, Path]] = []
+
     # Aggregate non-PDF results
-    for company, success, failure, failed_files in non_pdf_results:
+    for company, success, failure, failed_files, non_pdf_converted_pairs in non_pdf_results:
         stats["by_company"][company] = {
             "non_pdf_success": success,
             "non_pdf_failed": failure,
@@ -337,10 +431,11 @@ async def convert_all_files(
         stats["total_successful"] += success
         stats["total_failed"] += failure
         stats["failed_files"].extend(failed_files)
+        all_converted_pairs.extend(non_pdf_converted_pairs)
 
     # Aggregate PDF results
     for idx, (company_name, _) in enumerate(pdf_folders):
-        success, failure, failed_files, skipped = pdf_results[idx]
+        success, failure, failed_files, skipped, pdf_converted_pairs = pdf_results[idx]
         if company_name not in stats["by_company"]:
             stats["by_company"][company_name] = {}
         stats["by_company"][company_name]["pdf_success"] = success
@@ -351,13 +446,26 @@ async def convert_all_files(
         stats["total_failed"] += failure
         stats["total_skipped"] += skipped
         stats["failed_files"].extend(failed_files)
+        all_converted_pairs.extend(pdf_converted_pairs)
+
+    # Cleanup source files after successful conversion
+    if cleanup_source and all_converted_pairs:
+        for source_path, md_path in all_converted_pairs:
+            if md_path.exists():
+                try:
+                    source_path.unlink()
+                    stats["cleaned_up_files"].append(str(source_path))
+                    logger.info("Removed source file after conversion: %s", source_path)
+                except Exception as e:
+                    logger.warning("Failed to remove source file %s: %s", source_path, e)
 
     logger.info(
-        "Conversion complete: %d attempted, %d successful, %d failed, %d skipped",
+        "Conversion complete: %d attempted, %d successful, %d failed, %d skipped, %d source files cleaned up",
         stats["total_files_attempted"],
         stats["total_successful"],
         stats["total_failed"],
         stats["total_skipped"],
+        len(stats["cleaned_up_files"]),
     )
 
     return stats
