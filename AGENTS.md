@@ -2,7 +2,7 @@
 
 ## Repository overview
 
-Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, and saves structured JSON output.
+Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (docx/doc/xls via Python libs, PDF via Mistral OCR), and saves structured JSON output.
 
 - **Language:** Python 3.14.3
 - **Package manager:** uv
@@ -18,7 +18,7 @@ centraldepo-parser/            # Main project — all application code lives her
 │   ├── dev_worker.py          # File watcher with auto-reload for dev
 │   └── workflows/
 │       ├── start.py           # CLI to trigger a workflow execution
-│       └── centraldepo/       # CentralDepo workflow implementation
+│       └── centraldepo/       # CentralDepo workflow implementation (scrape→download→extract→convert→JSON)
 ├── example.py                 # Standalone scraper (non-workflow version)
 ├── pyproject.toml             # Project dependencies and dev tools config
 ├── Makefile                   # Run/execute/lint targets
@@ -72,7 +72,7 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 ## Repository-specific gotchas
 
 - **Two separate `uv` environments.** The root `pyproject.toml` has its own `.venv` (for ruff). `centraldepo-parser/` has its own `.venv` with runtime deps. Use the correct venv: root for linting, centraldepo-parser for running.
-- **Env vars required in `.env`.** The worker needs `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. Both `.env` files are gitignored.
+- **Env vars required in `.env`.** The worker and PDF OCR need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. Both `.env` files are gitignored.
 - **Root project name is a typo:** `worflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
 - **`example.py` duplicates logic.** The standalone scraper in `example.py` mirrors the workflow in `src/workflows/centraldepo/`. Changes to parsing/scraping logic should be applied to both places if they need to stay in sync.
 
