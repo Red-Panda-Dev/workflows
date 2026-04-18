@@ -74,3 +74,7 @@ class WorkflowOutput(BaseModel):
         default=None,
         description="Statistics from archive extraction phase (null if extraction disabled)",
     )
+    conversion_stats: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Statistics from file conversion to MD phase (null if conversion disabled)",
+    )

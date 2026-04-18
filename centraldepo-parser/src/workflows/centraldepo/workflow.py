@@ -103,6 +103,8 @@ async def save_results(output: WorkflowOutput, output_path: str) -> str:
         data["download_stats"] = output.download_stats
     if output.extraction_stats:
         data["extraction_stats"] = output.extraction_stats
+    if output.conversion_stats:
+        data["conversion_stats"] = output.conversion_stats
 
     # Atomic write using temp file
     fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=".centraldepo_", suffix=".tmp")
@@ -205,10 +207,62 @@ async def extract_all_downloaded_archives(
     return stats
 
 
+@workflows.activity()
+async def convert_all_downloaded_files(
+    results: List["CompanyResult"],
+    output_path: str,
+) -> dict:
+    """Activity to convert all downloaded files to Markdown format.
+
+    Handles both non-PDF files (docx, doc, xls) using Python libraries
+    and PDF files using Mistral OCR plugin.
+
+    Args:
+        results: List of CompanyResult objects from previous steps
+        output_path: Path to the JSON output file (used to find output_root)
+
+    Returns:
+        Dictionary with conversion statistics:
+        - total_companies
+        - total_files_attempted
+        - total_successful
+        - total_failed
+        - total_skipped
+        - failed_files
+        - by_company
+    """
+    from pathlib import Path
+
+    from .converter import convert_all_files
+
+    output_root = Path(output_path).parent
+    results_list = [(r.company_name, r.urls) for r in results]
+
+    # overwrite=True per user decision
+    stats = await convert_all_files(results_list, output_root, overwrite=True)
+
+    logger.info(
+        "Conversion complete: %d files attempted, %d successful, %d failed, %d skipped",
+        stats.get("total_files_attempted", 0),
+        stats.get("total_successful", 0),
+        stats.get("total_failed", 0),
+        stats.get("total_skipped", 0),
+    )
+
+    if stats.get("failed_files"):
+        logger.warning(
+            "Failed to convert %d files: %s",
+            len(stats["failed_files"]),
+            stats["failed_files"][:5],
+        )
+
+    return stats
+
+
 @workflows.workflow.define(
     name="centraldepo-parser",
     workflow_display_name="CentralDepo Dividend Parser",
-    workflow_description="Scrapes dividend disclosures from centraldepo.by, downloads files, and extracts archives.",
+    workflow_description="Scrapes dividend disclosures from centraldepo.by, downloads files, extracts archives, and converts to MD.",
 )
 class CentralDepoWorkflow:
     """Workflow that scrapes dividend registry from centraldepo.by.
@@ -222,7 +276,8 @@ class CentralDepoWorkflow:
     6. Saves results to JSON file
     7. Downloads all files to company folders (MD5-named)
     8. Extracts archive files (zip, tar, gz, tar.gz, tgz) into company folders
-    9. Returns aggregated output with download and extraction statistics
+    9. Converts all extracted files to Markdown (docx, doc, xls via Python libs; PDF via OCR)
+    10. Returns aggregated output with download, extraction, and conversion statistics
     """
 
     @workflows.workflow.entrypoint
@@ -231,13 +286,15 @@ class CentralDepoWorkflow:
 
         Scrapes first N pages from centraldepo.by dividend registry,
         groups URLs by company, saves to JSON file, downloads all files,
-        and returns results with download statistics.
+        extracts archives, converts files to Markdown, and returns results
+        with download, extraction, and conversion statistics.
 
         Args:
             input: WorkflowInput with max_pages, delay, timeout, and output_path
 
         Returns:
-            WorkflowOutput with results grouped by company, stats, and download_stats
+            WorkflowOutput with results grouped by company, stats, download_stats,
+            extraction_stats, and conversion_stats
 
         Raises:
             ValueError: If Cloudflare credentials are missing
@@ -326,13 +383,18 @@ class CentralDepoWorkflow:
         extraction_stats = await extract_all_downloaded_archives(results, saved_path)
         output.extraction_stats = extraction_stats
 
+        # Convert all files to Markdown
+        conversion_stats = await convert_all_downloaded_files(results, saved_path)
+        output.conversion_stats = conversion_stats
+
         logger.info(
             "Workflow complete: %d companies, %d total records, %d files downloaded, "
-            "%d archives extracted, saved to %s",
+            "%d archives extracted, %d files converted to MD, saved to %s",
             len(results),
             len(all_records),
             download_stats.get("successful", 0),
             extraction_stats.get("successful", 0),
+            conversion_stats.get("total_successful", 0),
             input.output_path,
         )
 

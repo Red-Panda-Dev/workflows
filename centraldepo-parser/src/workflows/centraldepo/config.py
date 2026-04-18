@@ -23,3 +23,6 @@ DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "centraldepo_dividends.json"
 # Cloudflare settings
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 2  # seconds, exponential backoff: 2, 4, 8...
+
+# Document conversion settings
+MAX_CONCURRENT_CONVERSIONS = 5  # Concurrent file-to-MD conversions
