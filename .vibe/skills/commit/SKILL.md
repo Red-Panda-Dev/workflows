@@ -499,7 +499,7 @@ The assistant must only add the co-author trailer below.
 Add the following line **at the end of every commit message**:
 
 ```text
-Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
+Co-authored-by: Mistral Vibe <vibe@mistral.ai>
 ```
 
 Rules:
@@ -548,7 +548,7 @@ Stats:
 * N files changed
 * +additions/-deletions lines
 
-Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>
+Co-authored-by: Mistral Vibe <vibe@mistral.ai>
 ```
 
 If scope is unknown, `<type>: <subject>` is allowed.
@@ -565,7 +565,7 @@ Use the repository's default git author.
 git commit \
   -m "<type>(<scope>): <subject>" \
   -m "<body>" \
-  -m "Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>"
+  -m "Co-authored-by: Mistral Vibe <vibe@mistral.ai>"
 ```
 
 Do not pass `--author`.
