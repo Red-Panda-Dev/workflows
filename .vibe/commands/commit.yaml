@@ -1,0 +1,5 @@
+name: show-prompt
+description: Показать шаблон промпта в терминале
+usage: show-prompt
+script: |
+  cat .vibe/prompts/commit.md

@@ -1,0 +1,31 @@
+[project]
+name = "worflows"
+version = "0.0.0"
+requires-python = '==3.14.3'
+
+[project.optional-dependencies]
+style = [
+    "ruff==0.15.10",
+]
+
+[tool.ruff]
+src = ["src"]
+line-length = 120
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I"]
+ignore = ["E501", "E712", "F821"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**" = ["F841"]
+"src/migrations/**" = ["E101", "W", "E"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tbel", "flows"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

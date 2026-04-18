@@ -1,0 +1,65 @@
+"""Auto-discover all workflow classes in src/workflows/ and start a worker."""
+# ruff: noqa: E402
+
+import asyncio
+import importlib
+import inspect
+import logging
+import pkgutil
+import sys
+
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+import mistralai.workflows as workflows
+from mistralai.workflows.core.definition.workflow_definition import (
+    get_workflow_definition,
+)
+
+
+def discover_workflows() -> list[type]:
+    """Scan the workflows package and return all workflow classes.
+
+    Recursively searches all modules and subpackages under workflows/.
+    """
+    discovered = []
+    package = importlib.import_module("workflows")
+
+    def _scan_package(package_name: str, package_path: list) -> None:
+        """Recursively scan a package and its subpackages for workflow classes."""
+        for _, modname, ispkg in pkgutil.iter_modules(package_path, prefix=f"{package_name}."):
+            try:
+                module = importlib.import_module(modname)
+                # Check for workflow classes in this module
+                for _, obj in inspect.getmembers(module, inspect.isclass):
+                    if hasattr(obj, "__workflows_workflow_def"):
+                        discovered.append(obj)
+
+                # If it's a package, recursively scan it
+                if ispkg:
+                    subpackage = importlib.import_module(modname)
+                    _scan_package(modname, subpackage.__path__)
+            except ImportError as e:
+                logger = logging.getLogger(__name__)
+                logger.warning("Failed to import %s: %s", modname, e)
+
+    _scan_package("workflows", package.__path__)
+    return discovered
+
+
+async def main() -> None:
+    discovered = discover_workflows()
+
+    if not discovered:
+        print("No workflows discovered in src/workflows/")
+        sys.exit(1)
+
+    names = [get_workflow_definition(wf).name for wf in discovered]
+    print(f"Discovered {len(discovered)} workflow(s): {', '.join(names)}")
+
+    await workflows.run_worker(discovered)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
