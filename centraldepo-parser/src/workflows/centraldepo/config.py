@@ -23,6 +23,26 @@ DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "centraldepo_dividends.json"
 # Cloudflare settings
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 2  # seconds, exponential backoff: 2, 4, 8...
+RETRY_BACKOFF_MAX = 30  # maximum backoff time in seconds
+
+# Connection pooling
+MAX_CONNECTIONS = 10
+CONNECTION_TIMEOUT = 30
+
+# Concurrency limits for Cloudflare API calls
+# Respect Cloudflare rate limits (typically 5-10 concurrent requests allowed)
+MAX_CONCURRENT_SCRAPES = 5  # Maximum concurrent page scrapes
+BATCH_SIZE = 10  # Number of pages to request in a batch
+SCRAPE_BATCH_DELAY = 0.5  # Delay between batches in seconds
+
+# Circuit breaker settings for API health
+CIRCUIT_BREAKER_MAX_FAILURES = 3
+CIRCUIT_BREAKER_RESET_TIMEOUT = 60  # seconds before circuit reopens
+
+# Adaptive rate limiting
+INITIAL_DELAY = 0.5
+MIN_DELAY = 0.1
+MAX_DELAY = 10.0
 
 # Document conversion settings
 MAX_CONCURRENT_CONVERSIONS = 5  # Concurrent file-to-MD conversions
