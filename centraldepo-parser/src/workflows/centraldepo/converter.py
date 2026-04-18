@@ -188,7 +188,7 @@ async def process_pdf_files(
 
             request = OCRRequest(
                 model="mistral-ocr-latest",
-                files=[content],
+                document=content,
             )
             result = await mistralai_ocr(request)
 
