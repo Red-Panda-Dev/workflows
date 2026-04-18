@@ -2,7 +2,7 @@
 
 ## Scope
 
-The CentralDepo Dividend Parser — a Mistral Workflow that scrapes paginated dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API, groups them by company, and saves results to JSON.
+The CentralDepo Dividend Parser — a Mistral Workflow that scrapes paginated dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, and saves structured results to JSON.
 
 ## What lives here
 
@@ -14,29 +14,34 @@ src/
     ├── __init__.py            # Empty package marker (auto-discovery entry point)
     ├── start.py               # CLI to trigger workflow execution via Mistral client
     └── centraldepo/           # Core workflow package
-        ├── config.py          # Constants: BASE_URL, SCRAPE_API, SELECTOR, defaults
+        ├── config.py          # Constants: BASE_URL, SCRAPE_API, SELECTOR, retry/concurrency defaults
         ├── models.py          # Pydantic models: DividendRecord, ScrapeResult, WorkflowInput/Output
         ├── parser.py          # HTML parsing: extract records, group by company
         ├── client.py          # Cloudflare Browser Rendering HTTP client with retries
-        └── workflow.py        # Mistral workflow + activities (entry point)
+        ├── downloader.py      # Concurrent file download with retry/backoff per company
+        ├── extractor.py       # Archive extraction (ZIP, TAR, GZ, TGZ) with atomic writes
+        └── workflow.py        # Mistral workflow + activities (orchestration entry point)
 example.py                     # Standalone async scraper (non-workflow version of same logic)
-output/                        # JSON output directory (gitignored)
+output/                        # JSON output + downloaded/extracted files (gitignored)
 ```
 
 ## Local boundaries and invariants
 
 - **Workflow sandbox:** The Mistral workflow runtime restricts `os.environ` access inside the workflow class. All env var reads must happen inside `@workflows.activity()` functions. See `get_credentials()` in `workflow.py`.
 - **Discovery contract:** New workflows must be placed in a subpackage under `src/workflows/`. The class must be decorated with `@workflows.workflow.define(...)` — the discoverer scans for `__workflows_workflow_def`.
-- **Atomic writes:** Both `workflow.py` (`save_results` activity) and `example.py` (`write_json`) use temp-file-then-rename for atomic JSON output. Keep this pattern if adding new output paths.
-- **Pagination convention:** Page 1 uses the base URL with no query params. Page 2+ appends `?PAGEN_1=<n>`. This is hardcoded in both `config.py:BASE_URL` and `_build_page_url()`.
-- **CSS selector:** `.news-item` is the selector used to find dividend entries. If the target site changes its markup, update `config.py:SELECTOR` and the Cloudflare API payload in `client.py`.
+- **Atomic writes:** `workflow.py` (`save_results`), `downloader.py`, and `extractor.py` all use temp-file-then-rename for atomic output. Keep this pattern if adding new output paths.
+- **Pagination convention:** Page 1 uses the base URL with no query params. Page 2+ appends `?PAGEN_1=<n>`. Hardcoded in `config.py:BASE_URL` and `_build_page_url()`.
+- **CSS selector:** `.news-item` finds dividend entries. If the target site changes markup, update `config.py:SELECTOR` and the Cloudflare API payload in `client.py`.
+- **Concurrency limits:** `downloader.py` and `extractor.py` each have their own concurrency limit (`MAX_CONCURRENT_DOWNLOADS`, `MAX_CONCURRENT_EXTRACTS`) defined in `config.py`.
 
 ## Safe change rules
 
-- **Adding a new workflow:** Create a new package under `src/workflows/<name>/` with a module containing a class decorated with `@workflows.workflow.define(...)`. It will be auto-discovered by `discover.py`.
+- **Adding a new workflow:** Create a new package under `src/workflows/<name>/` with a class decorated with `@workflows.workflow.define(...)`. It will be auto-discovered by `discover.py`.
 - **Modifying parsing logic:** Edit `parser.py`. If you also need the standalone scraper to reflect the change, update `example.py` as well.
 - **Changing API interaction:** Edit `client.py`. Do not change retry/timeout constants directly — use `config.py`.
-- **Changing output schema:** Edit `models.py` first, then update `workflow.py` (the `save_results` activity serializes `WorkflowOutput`) and `parser.py` (produces `CompanyResult`).
+- **Changing download behavior:** Edit `downloader.py`. Concurrency and retry tuning lives in `config.py`.
+- **Changing extraction behavior:** Edit `extractor.py`. Supports ZIP, TAR, GZ, TGZ, TAR.GZ. New archive types should be added to the detection logic here.
+- **Changing output schema:** Edit `models.py` first, then update `workflow.py` (serializes `WorkflowOutput`), `parser.py` (produces `CompanyResult`), and any downstream consumers.
 - **Do not edit `.agents/`** — those are read-only Mistral SDK reference materials.
 
 ## Validation
@@ -62,6 +67,7 @@ make execute workflow=centraldepo-parser input='{"max_pages": 2}'
 
 ## Nearby docs
 
-- `README.md` — project setup and commands
+- `README.md` — project setup, commands, data model, troubleshooting
 - `.agents/skills/workflows/SKILL.md` — Mistral Workflows SDK reference
 - Root `AGENTS.md` — workspace-wide conventions and ruff config
+- Root `ARCHITECTURE.md` — full code map, logical layers, data flow, invariants
