@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "modern-python": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "computedHash": "fb23cdde660840865454af8ea05bd8d8ddefa0082d4e52f2cf34385997eafd84"
+    }
+  }
+}
