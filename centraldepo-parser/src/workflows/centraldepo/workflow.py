@@ -13,7 +13,7 @@ import mistralai.workflows as workflows
 
 from .client import CloudflareClient
 from .config import BASE_URL
-from .models import DividendRecord, ScrapeResult, WorkflowInput, WorkflowOutput
+from .models import CompanyResult, DividendRecord, ScrapeResult, WorkflowInput, WorkflowOutput
 from .parser import transform_to_output
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,10 @@ async def save_results(output: WorkflowOutput, output_path: str) -> str:
         "results": [{"company_name": r.company_name, "urls": r.urls} for r in output.results],
         "stats": output.stats,
     }
+    if output.download_stats:
+        data["download_stats"] = output.download_stats
+    if output.extraction_stats:
+        data["extraction_stats"] = output.extraction_stats
 
     # Atomic write using temp file
     fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=".centraldepo_", suffix=".tmp")
@@ -114,10 +118,97 @@ async def save_results(output: WorkflowOutput, output_path: str) -> str:
         raise RuntimeError(f"Failed to save results: {e}") from e
 
 
+@workflows.activity()
+async def download_all_results_files(
+    results: List["CompanyResult"],
+    output_path: str,
+) -> dict:
+    """Activity to download all files for all companies.
+
+    Args:
+        results: List of CompanyResult with company_name and urls
+        output_path: Path to the JSON output file (used to find output_root)
+
+    Returns:
+        Dictionary with download statistics
+    """
+    from pathlib import Path
+
+    from .downloader import download_all_files
+
+    output_root = Path(output_path).parent
+
+    # Prepare list of (company_name, urls) tuples
+    results_list = [(r.company_name, r.urls) for r in results]
+
+    stats = await download_all_files(results_list, output_root)
+
+    logger.info(
+        "Download complete: %d companies, %d files (%d successful, %d failed)",
+        stats["total_companies"],
+        stats["total_files"],
+        stats["successful"],
+        stats["failed"],
+    )
+
+    if stats["failed_urls"]:
+        logger.warning(
+            "Failed to download %d files: %s",
+            len(stats["failed_urls"]),
+            stats["failed_urls"][:5],
+        )
+
+    return stats
+
+
+@workflows.activity()
+async def extract_all_downloaded_archives(
+    results: List["CompanyResult"],
+    output_path: str,
+) -> dict:
+    """Activity to extract all downloaded archives for all companies.
+
+    Args:
+        results: List of CompanyResult with company_name and urls
+        output_path: Path to the JSON output file (used to find output_root)
+
+    Returns:
+        Dictionary with extraction statistics
+    """
+    from pathlib import Path
+
+    from .extractor import extract_all_archives
+
+    output_root = Path(output_path).parent
+
+    # Prepare list of (company_name, urls) tuples
+    results_list = [(r.company_name, r.urls) for r in results]
+
+    stats = await extract_all_archives(results_list, output_root)
+
+    logger.info(
+        "Extraction complete: %d companies, %d archives (%d successful, %d failed, %d files extracted)",
+        stats["total_companies"],
+        stats["total_archives"],
+        stats["successful"],
+        stats["failed"],
+        stats.get("files_extracted", 0),
+    )
+
+    if stats.get("failed_archives"):
+        logger.warning(
+            "Failed to extract %d archives: %s",
+            len(stats["failed_archives"]),
+            stats["failed_archives"][:5],
+        )
+
+    return stats
+
+
 @workflows.workflow.define(
     name="centraldepo-parser",
     workflow_display_name="CentralDepo Dividend Parser",
-    workflow_description="Scrapes dividend disclosures from centraldepo.by using Cloudflare Browser Rendering.",
+    workflow_description="Scrapes dividend disclosures from centraldepo.by, downloads files, and extracts archives.",
 )
 class CentralDepoWorkflow:
     """Workflow that scrapes dividend registry from centraldepo.by.
@@ -127,9 +218,11 @@ class CentralDepoWorkflow:
     2. Iterates through paginated pages (up to max_pages)
     3. Uses Cloudflare Browser Rendering to scrape each page
     4. Extracts company names and archive URLs
-    5. Groups URLs by company
+    5. Groups URLs by company (normalized to lowercase)
     6. Saves results to JSON file
-    7. Returns aggregated output
+    7. Downloads all files to company folders (MD5-named)
+    8. Extracts archive files (zip, tar, gz, tar.gz, tgz) into company folders
+    9. Returns aggregated output with download and extraction statistics
     """
 
     @workflows.workflow.entrypoint
@@ -137,13 +230,14 @@ class CentralDepoWorkflow:
         """Main workflow entry point.
 
         Scrapes first N pages from centraldepo.by dividend registry,
-        groups URLs by company, saves to JSON file, and returns results.
+        groups URLs by company, saves to JSON file, downloads all files,
+        and returns results with download statistics.
 
         Args:
             input: WorkflowInput with max_pages, delay, timeout, and output_path
 
         Returns:
-            WorkflowOutput with results grouped by company and stats
+            WorkflowOutput with results grouped by company, stats, and download_stats
 
         Raises:
             ValueError: If Cloudflare credentials are missing
@@ -215,17 +309,30 @@ class CentralDepoWorkflow:
                 "total_pages_scraped": min(input.max_pages, page),
                 "total_records": len(all_records),
                 "companies_found": len(results),
-                "duplicate_urls_removed": len(all_records) - len(results),
+                "duplicate_urls_removed": len(all_records) - sum(len(r.urls) for r in results),
             },
+            download_stats=None,
+            extraction_stats=None,
         )
 
         # Save to file
-        await save_results(output, input.output_path)
+        saved_path = await save_results(output, input.output_path)
+
+        # Download all files
+        download_stats = await download_all_results_files(results, saved_path)
+        output.download_stats = download_stats
+
+        # Extract all archives
+        extraction_stats = await extract_all_downloaded_archives(results, saved_path)
+        output.extraction_stats = extraction_stats
 
         logger.info(
-            "Workflow complete: %d companies, %d total records, saved to %s",
+            "Workflow complete: %d companies, %d total records, %d files downloaded, "
+            "%d archives extracted, saved to %s",
             len(results),
             len(all_records),
+            download_stats.get("successful", 0),
+            extraction_stats.get("successful", 0),
             input.output_path,
         )
 

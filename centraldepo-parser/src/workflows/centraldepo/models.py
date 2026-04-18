@@ -66,3 +66,11 @@ class WorkflowOutput(BaseModel):
         default_factory=dict,
         description="Metadata about the scrape operation",
     )
+    download_stats: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Statistics from file download phase (null if downloads disabled)",
+    )
+    extraction_stats: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Statistics from archive extraction phase (null if extraction disabled)",
+    )
