@@ -75,3 +75,10 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 - **Env vars required in `.env`.** The worker needs `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. Both `.env` files are gitignored.
 - **Root project name is a typo:** `worflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
 - **`example.py` duplicates logic.** The standalone scraper in `example.py` mirrors the workflow in `src/workflows/centraldepo/`. Changes to parsing/scraping logic should be applied to both places if they need to stay in sync.
+
+## Python comments and docstrings
+
+When editing Python files, follow the policy in
+`.skills/python-docs-and-comments.md`.
+
+This is mandatory for public APIs, aiohttp handlers, and non-trivial async workflows.
