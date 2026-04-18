@@ -2,7 +2,7 @@
 
 ## Repository overview
 
-Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The scraped data is grouped by company and saved as JSON.
+Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, and saves structured JSON output.
 
 - **Language:** Python 3.14.3
 - **Package manager:** uv
@@ -64,7 +64,9 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 
 ## Key docs
 
+- `ARCHITECTURE.md` — full code map, logical layers, data flow, architectural invariants
 - `centraldepo-parser/README.md` — setup, commands, development workflow
+- `centraldepo-parser/AGENTS.md` — project-local module map, change rules, boundaries
 - `centraldepo-parser/.agents/skills/workflows/SKILL.md` — Mistral Workflows SDK reference
 
 ## Repository-specific gotchas
