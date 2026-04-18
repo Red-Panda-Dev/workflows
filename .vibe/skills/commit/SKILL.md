@@ -1,6 +1,6 @@
 ---
+name: commit
 description: Structured local commits
-agent: build
 ---
 
 # /commit — Structured local commits (no push)
