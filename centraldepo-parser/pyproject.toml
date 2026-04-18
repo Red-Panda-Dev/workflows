@@ -11,7 +11,7 @@ dependencies = [
     # Document conversion dependencies
     "python-docx",
     "xlrd",
-    "docx2txt",
+    "textract",
     "mistralai-workflows-plugins-mistralai",
 ]
 
