@@ -1,15 +1,65 @@
 {
   "results": [
     {
+      "company_name": "ЗАО \"Агентство Новых Технологий\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/ANT_dividend_20260109.pdf",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Agentstvo_Novyh_Tehnologiy_dividend_20251119.pdf",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Ahientstvo_Novych_Technologij_dividend_20250804.pdf"
+      ]
+    },
+    {
       "company_name": "ЗАО \"Мегадом\"",
       "urls": [
-        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20260407.zip"
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20250513.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20250612.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20250712.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20250807.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20250829.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20251006.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20251030.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20251201.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20260323.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_dividend_20260407.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Megadom_reestr_20250410.zip"
+      ]
+    },
+    {
+      "company_name": "ЗАО \"Остхим\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Osthim_dividend_20250407.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Osthim_dividend_20251030.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Osthim_dividend_20260112.zip"
       ]
     },
     {
       "company_name": "ЗАО \"Партнер и К\"",
       "urls": [
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Partner_I_K_dividend_20260330.zip"
+      ]
+    },
+    {
+      "company_name": "ЗАО \"Современные знания\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Sovriemiennyje_Znanija_dividend_20260325.zip"
+      ]
+    },
+    {
+      "company_name": "ЗАО \"Торговый дом СКС\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Torhovyj_Dom_SKS_dividend_20250411.zip"
+      ]
+    },
+    {
+      "company_name": "ЗАО \"ЭНЕРГОТЕХПРОМ-2\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Energotehprom2_dividend_20250407.pdf"
+      ]
+    },
+    {
+      "company_name": "ЗАО \"ЭФИР\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Efir_dividend_20250818.zip"
       ]
     },
     {
@@ -21,7 +71,14 @@
     {
       "company_name": "ОАО \"Агрохимпроект\"",
       "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Agrohimproekt_dividend_20250408.zip",
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Agrohimproekt_dividend_20260330.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"БПА БЕЛСТРОЙИНДУСТРИЯ\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/BPA_Belstroyindustriya_dividend_20250409.pdf"
       ]
     },
     {
@@ -39,6 +96,7 @@
     {
       "company_name": "ОАО \"Гомельский белково-жировой завод\"",
       "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/GBZhZ_dividend_20250407.pdf",
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/GBZhZ_dividend_20260409.pdf"
       ]
     },
@@ -49,15 +107,28 @@
       ]
     },
     {
+      "company_name": "ОАО \"Искра-Ветка\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/IskraVetka_dividend_20250407.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Калининский\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Kalininskiy_dividend_20250409.zip"
+      ]
+    },
+    {
       "company_name": "ОАО \"Лиданефтепродукт\"",
       "urls": [
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Lidanefteprodukt_dividend_20260403.zip"
       ]
     },
     {
-      "company_name": "ОАО \"МТК \"Полесье\"",
+      "company_name": "ОАО \"Лидское пиво\"",
       "urls": [
-        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/MTK_Polesye_dividend_20260410.zip"
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Lidskoe_Pivo_dividend_20250530.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Lidskoe_Pivo_dividend_20260323.zip"
       ]
     },
     {
@@ -69,6 +140,7 @@
     {
       "company_name": "ОАО \"Малоберестовицкий элитхоз\"",
       "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Maloberestovickiy_Elithoz_dividend_20250407.zip",
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Malobieriestovickij_Elitchoz_dividend_20260403.zip"
       ]
     },
@@ -79,21 +151,54 @@
       ]
     },
     {
+      "company_name": "ОАО \"Мосстройкомплект\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Mosstroykomplekt_dividend_19122025.pdf"
+      ]
+    },
+    {
       "company_name": "ОАО \"Мостстройкомплект\"",
       "urls": [
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Moststroykomplekt_dividend_20260406.pdf"
       ]
     },
     {
+      "company_name": "ОАО \"Мотекс\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Moteks_dividend_20250408.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"МТК \"Полесье\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/MTK_Polesye_dividend_20260410.zip"
+      ]
+    },
+    {
       "company_name": "ОАО \"Новогрудское СМУ\"",
       "urls": [
-        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Novogrudskoe_SMU_dividend_20260331.pdf"
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Novogrudskoe_SMU_dividend_20260331.pdf",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Novogrudskoye_SMU_dividend_20250404.zip"
       ]
     },
     {
       "company_name": "ОАО \"Пуховичинефтепродукт\"",
       "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Puhovichinefteprodukt_dividend_20250404.zip",
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Puhovochinefteprodukt_dividend_20260403.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Рогознянский\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Rogoznyanskiy_dividend_20250407.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Rogoznyanskiy_dividend_20260325.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Сигма\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Sigma_dividend_20260317.zip"
       ]
     },
     {
@@ -103,9 +208,22 @@
       ]
     },
     {
+      "company_name": "ОАО \"Спецтелекомстрой\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Spectelekomstroy_dividend_20250404.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Spectelekomstroy_dividend_20260108.zip"
+      ]
+    },
+    {
       "company_name": "ОАО \"Спорово\"",
       "urls": [
         "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Sporovo_dividend_20260330.pdf"
+      ]
+    },
+    {
+      "company_name": "ОАО \"ТЦ \"Альтенбург\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/TC_Altenburg_dividend_20250411.zip"
       ]
     },
     {
@@ -117,14 +235,21 @@
     {
       "company_name": "ОАО \"Универсалторг\" г. Новолукомля",
       "urls": [
-        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Universaltorg_Novolukomlya_dividend_20260402.zip"
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Universaltorg_Novolukomlya_dividend_20260402.zip",
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Universaltorg_dividend_20250407.zip"
+      ]
+    },
+    {
+      "company_name": "ОАО \"Утевское\"",
+      "urls": [
+        "https://www.centraldepo.by/upload/uslugi/disclosure/divident/Utevskoe_dividend_20250507.PDF"
       ]
     }
   ],
   "stats": {
     "total_pages_scraped": 3,
-    "total_records": 20,
-    "companies_found": 20,
+    "total_records": 60,
+    "companies_found": 37,
     "duplicate_urls_removed": 0
   }
 }
