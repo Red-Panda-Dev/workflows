@@ -1,7 +1,8 @@
 """HTML parsing logic for CentralDepo workflow."""
 
 import re
-from typing import List
+from collections import defaultdict
+from typing import Dict, List
 from urllib.parse import urljoin
 
 from .config import BASE_URL
@@ -49,26 +50,45 @@ def parse_items(raw_items: List[dict], page: int) -> List[DividendRecord]:
 
 
 def transform_to_output(records: List[DividendRecord]) -> List[CompanyResult]:
-    """Transform list of records to output format: [{company_name, urls: [...]}, ...].
+    """Transform list of records to output format.
 
-    Groups all URLs by company name. Each company appears once with all its URLs.
-    Results are sorted alphabetically by company name.
+    Groups all URLs by company name (lowercase for consistent grouping).
+    Each company appears once with all its URLs.
+    Results are sorted alphabetically by lowercase company name.
+    Original case is preserved in the output.
 
     Args:
         records: List of DividendRecord objects from scraping
 
     Returns:
-        List of CompanyResult objects grouped by company name
+        List of CompanyResult objects grouped by lowercase company name
     """
-    from collections import defaultdict
-
-    company_urls = defaultdict(list)
+    # Group by lowercase company name for consistent grouping
+    company_urls: Dict[str, List[str]] = defaultdict(list)
 
     for record in records:
-        company_urls[record.company_name].append(record.archive_url)
+        company_name_lower = record.company_name.lower()
+        company_urls[company_name_lower].append(record.archive_url)
 
-    # Convert to list of CompanyResult objects, sorted by company name
-    results = [CompanyResult(company_name=name, urls=sorted(set(urls))) for name, urls in company_urls.items()]
-    results.sort(key=lambda x: x.company_name)
+    # Preserve original case from first occurrence of each company
+    name_mapping: Dict[str, str] = {}
+    for record in records:
+        lower = record.company_name.lower()
+        if lower not in name_mapping:
+            name_mapping[lower] = record.company_name
+
+    # Build results with original case, deduplicated URLs
+    results: List[CompanyResult] = []
+    for name_lower, urls in company_urls.items():
+        original_name = name_mapping.get(name_lower, name_lower)
+        results.append(
+            CompanyResult(
+                company_name=original_name,
+                urls=sorted(set(urls)),
+            )
+        )
+
+    # Sort by lowercase name for consistency
+    results.sort(key=lambda x: x.company_name.lower())
 
     return results
