@@ -20,9 +20,10 @@ src/
         ├── client.py          # Cloudflare Browser Rendering HTTP client with retries
         ├── downloader.py      # Concurrent file download with retry/backoff per company
         ├── extractor.py       # Archive extraction (ZIP, TAR, GZ, TGZ) with atomic writes
+        ├── converter.py       # Document-to-Markdown: docx/doc/xls via Python libs, PDF via Mistral OCR
         └── workflow.py        # Mistral workflow + activities (orchestration entry point)
 example.py                     # Standalone async scraper (non-workflow version of same logic)
-output/                        # JSON output + downloaded/extracted files (gitignored)
+output/                        # JSON output + downloaded/extracted/converted files (gitignored)
 ```
 
 ## Local boundaries and invariants
@@ -32,7 +33,8 @@ output/                        # JSON output + downloaded/extracted files (gitig
 - **Atomic writes:** `workflow.py` (`save_results`), `downloader.py`, and `extractor.py` all use temp-file-then-rename for atomic output. Keep this pattern if adding new output paths.
 - **Pagination convention:** Page 1 uses the base URL with no query params. Page 2+ appends `?PAGEN_1=<n>`. Hardcoded in `config.py:BASE_URL` and `_build_page_url()`.
 - **CSS selector:** `.news-item` finds dividend entries. If the target site changes markup, update `config.py:SELECTOR` and the Cloudflare API payload in `client.py`.
-- **Concurrency limits:** `downloader.py` and `extractor.py` each have their own concurrency limit (`MAX_CONCURRENT_DOWNLOADS`, `MAX_CONCURRENT_EXTRACTS`) defined in `config.py`.
+- **Concurrency limits:** `downloader.py` and `extractor.py` each have their own concurrency limit (`MAX_CONCURRENT_DOWNLOADS`, `MAX_CONCURRENT_EXTRACTS`) defined in `config.py`. Conversion concurrency is `MAX_CONCURRENT_CONVERSIONS` in `config.py`.
+- **Conversion split:** Non-PDF files (docx, doc, xls) are converted locally via `python-docx`, `docx2txt`, `xlrd`. PDF files are converted via the Mistral OCR plugin (`mistralai_ocr`) which requires `MISTRAL_API_KEY`.
 
 ## Safe change rules
 
@@ -41,6 +43,7 @@ output/                        # JSON output + downloaded/extracted files (gitig
 - **Changing API interaction:** Edit `client.py`. Do not change retry/timeout constants directly — use `config.py`.
 - **Changing download behavior:** Edit `downloader.py`. Concurrency and retry tuning lives in `config.py`.
 - **Changing extraction behavior:** Edit `extractor.py`. Supports ZIP, TAR, GZ, TGZ, TAR.GZ. New archive types should be added to the detection logic here.
+- **Changing conversion behavior:** Edit `converter.py`. Non-PDF types are handled in `convert_to_markdown()`. PDF OCR uses `mistralai_ocr` from the Mistral plugin — not a local library. New file types should be added to the extension dispatch in `convert_to_markdown()`.
 - **Changing output schema:** Edit `models.py` first, then update `workflow.py` (serializes `WorkflowOutput`), `parser.py` (produces `CompanyResult`), and any downstream consumers.
 - **Do not edit `.agents/`** — those are read-only Mistral SDK reference materials.
 
