@@ -9,6 +9,9 @@ lint:
 	ruff format centraldepo-parser/ --check
 	ruff check centraldepo-parser/
 
+type-check:
+	uv run ty check centraldepo-parser/
+
 # Automatically refactor Python code: remove unused imports/vars and format
 refactor: install-style
 	ruff check --fix --unsafe-fixes \
