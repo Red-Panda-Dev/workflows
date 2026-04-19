@@ -12,12 +12,11 @@ from typing import List, Tuple
 import docx2txt
 import xlrd
 from docx import Document
-from mistralai.client.models.file import File
 from mistralai.workflows.plugins.mistralai import OCRRequest, mistralai_ocr
-from mistralai.workflows.plugins.mistralai.utils import get_mistral_client
 
 from .config import MAX_CONCURRENT_CONVERSIONS
 from .downloader import get_company_folder_name
+from .r2_storage import upload_to_r2
 
 logger = logging.getLogger(__name__)
 
@@ -204,16 +203,16 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> Tuple[bool, 
 
 async def process_pdf_files(
     folder_path: Path,
+    company_hash: str,
     overwrite: bool = True,
 ) -> Tuple[int, int, List[str], int, List[Tuple[Path, Path]]]:
     """Process all PDF files in a folder with Mistral OCR.
 
-    Uses the Files API to upload PDFs first, then references them by file_id
-    in the OCR request. This is the proper way to handle local files with
-    the Mistral OCR API which requires file_id to be a UUID.
+    Uploads PDFs to Cloudflare R2, then passes public URL to Mistral OCR API.
 
     Args:
         folder_path: Path to folder containing PDF files
+        company_hash: MD5 hash of company name for R2 path construction
         overwrite: Whether to overwrite existing .md files (default: True)
 
     Returns:
@@ -225,10 +224,6 @@ async def process_pdf_files(
     if not pdf_files:
         return (0, 0, [], 0, [])
 
-    # Get Mistral client for file uploads
-    from mistralai.client.models import FileChunk
-
-    mistral_client = get_mistral_client()
     results = []
     converted_pairs: List[Tuple[Path, Path]] = []
 
@@ -241,24 +236,18 @@ async def process_pdf_files(
                 results.append((False, "MD_ALREADY_EXISTS", str(pdf_path)))
                 continue
 
-            # Upload file to Mistral to get a file_id (UUID)
-            # The Files API expects a File model instance
-            # Use upload_async since we're in an async context
-            with open(pdf_path, "rb") as f:
-                file_resp = await mistral_client.files.upload_async(
-                    file=File(
-                        fileName=pdf_path.name,
-                        content=f,
-                    ),
-                    purpose="ocr",
-                )
+            # Upload to R2
+            r2_key = f"temps/payouts/{company_hash}/{pdf_path.name}"
+            public_url = await upload_to_r2(pdf_path, r2_key)
 
-            # Use FileChunk with the actual UUID file_id
-            file_chunk = FileChunk(file_id=file_resp.id)
+            if not public_url:
+                results.append((False, "R2_UPLOAD_FAILED", str(pdf_path)))
+                continue
 
+            # Call Mistral OCR with public URL
             request = OCRRequest(
                 model="mistral-ocr-latest",
-                document=file_chunk,
+                document=public_url,  # Direct URL instead of file_id
             )
             result = await mistralai_ocr(request)
 
@@ -400,8 +389,9 @@ async def convert_all_files(
 
     # Process PDF files for all companies (using Mistral OCR)
     pdf_tasks = []
-    for _, folder_path in pdf_folders:
-        task = asyncio.create_task(process_pdf_files(folder_path, overwrite))
+    for company_name, folder_path in pdf_folders:
+        folder_name = get_company_folder_name(company_name)
+        task = asyncio.create_task(process_pdf_files(folder_path, folder_name, overwrite))
         pdf_tasks.append(task)
 
     pdf_results = await asyncio.gather(*pdf_tasks)
