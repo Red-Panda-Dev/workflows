@@ -155,7 +155,7 @@ async def extract_company_archives(
     company_name: str,
     folder_path: Path,
     semaphore: asyncio.Semaphore,
-) -> tuple[str, int, int, list[str]]:
+) -> tuple[str, int, int, list[str], int]:
     """Extract all archives for a single company.
 
     Args:
