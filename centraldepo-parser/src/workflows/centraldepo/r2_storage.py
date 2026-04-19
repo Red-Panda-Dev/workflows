@@ -5,6 +5,7 @@ Provides public URLs for use with Mistral OCR API.
 Uses aioboto3 for async S3 operations.
 """
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -45,7 +46,7 @@ async def upload_to_r2(file_path: Path, r2_key: str) -> Optional[str]:
             endpoint_url=os.environ.get("AWS_S3_URL"),
         ) as client:
             # Read file async
-            file_content = await file_path.read_bytes()
+            file_content = await asyncio.to_thread(file_path.read_bytes)
 
             # Upload to R2
             await client.put_object(
