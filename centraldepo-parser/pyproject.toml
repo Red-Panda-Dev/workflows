@@ -4,21 +4,21 @@ version = "0.1.0"
 description = "A Mistral Workflows project"
 requires-python = "==3.14.3"
 dependencies = [
-    "mistralai-workflows>=3.0.0,<4",
-    "pydantic",
+    "mistralai-workflows==3.1.1",
+    "pydantic==2.13.2",
     "python-dotenv",
-    "aiohttp>=3.8",
-    # Document conversion dependencies
-    "python-docx",
+    "aiohttp==3.13.5",
+    "python-docx==1.2.0",
     "xlrd",
-    "textract",
-    "mistralai-workflows-plugins-mistralai",
+    "textract==1.6.5",
+    "mistralai-workflows-plugins-mistralai==3.1.1",
+    "aioboto3==15.5.0",
 ]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.11",
-    "mypy>=1.15",
-    "pytest>=8.0",
-    "watchdog>=4.0",
+    "ruff==0.15.11",
+    "mypy==1.20.1",
+    "pytest==9.0.3",
+    "watchdog==6.0.0",
 ]
