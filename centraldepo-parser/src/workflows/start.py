@@ -14,6 +14,11 @@ from mistralai.workflows.client import get_mistral_client
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for workflow execution.
+
+    Returns:
+        argparse.Namespace: Parsed arguments containing workflow name and input JSON.
+    """
     parser = argparse.ArgumentParser(
         description="Trigger a workflow execution.",
     )
@@ -31,6 +36,11 @@ def parse_args() -> argparse.Namespace:
 
 
 async def main() -> None:
+    """Async entry point to trigger and wait for workflow execution.
+
+    Reads environment variables, parses input, and executes the specified workflow
+    via the Mistral client.
+    """
     args = parse_args()
     workflow_name = args.workflow
 

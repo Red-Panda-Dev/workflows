@@ -49,6 +49,11 @@ def discover_workflows() -> list[type]:
 
 
 async def main() -> None:
+    """Async entry point to discover workflows and start the worker.
+
+    Scans for workflow classes in src/workflows/, then starts the Mistral
+    worker to process them. Exits with code 1 if no workflows found.
+    """
     discovered = discover_workflows()
 
     if not discovered:

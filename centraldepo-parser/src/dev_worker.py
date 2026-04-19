@@ -50,6 +50,11 @@ def _stop_worker(proc: subprocess.Popen) -> None:
 
 
 def main() -> None:
+    """Run the development worker with file watch and auto-reload.
+
+    Watches the src/ directory for .py file changes, restarts the workflow
+    worker process on changes, and handles crashes by waiting for next change.
+    """
     handler = _RestartHandler()
     observer = Observer()
     observer.schedule(handler, WATCH_DIR, recursive=True)
