@@ -250,7 +250,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-docx" },
     { name = "python-dotenv" },
-    { name = "six" },
     { name = "textract" },
     { name = "xlrd" },
 ]
@@ -271,8 +270,7 @@ requires-dist = [
     { name = "mistralai-workflows-plugins-mistralai", specifier = "==3.1.1" },
     { name = "pydantic", specifier = "==2.13.2" },
     { name = "python-docx", specifier = "==1.2.0" },
-    { name = "python-dotenv" },
-    { name = "six", specifier = ">=1.12.0" },
+    { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "textract", specifier = "==1.6.5" },
     { name = "xlrd" },
 ]
