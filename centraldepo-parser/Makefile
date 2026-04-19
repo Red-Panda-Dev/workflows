@@ -4,9 +4,9 @@
 installdeps:
 	uv sync
 
-## Auto-discover all workflows and start the worker (with file-watch auto-reload)
+## Auto-discover all workflows and start the worker
 start-worker:
-	uv run python src/dev_worker.py
+	uv run python src/discover.py
 
 ## Trigger a workflow execution
 ## Usage: make execute workflow=hello-world input='{"name": "World"}'
