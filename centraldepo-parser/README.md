@@ -318,14 +318,20 @@ The MD5-based folder names ensure:
 - `watchdog>=4.0` — File watching for dev worker
 
 ### System Dependencies (Optional)
-For document conversion of binary `.doc` files (Microsoft Word 97-2003 format), the `textract` library requires system-level tools:
+For document conversion of binary `.doc` files (Microsoft Word 97-2003 format), the workflow calls system tools directly via `subprocess`.
 
 ```bash
 # Ubuntu/Debian
 sudo apt-get install antiword catdoc
 ```
 
-Without these tools, `.doc` file conversion will use fallback methods that may not extract all text properly.
+The `.doc` conversion fallback order is:
+1. `python-docx` for mislabeled `.docx` files
+2. `docx2txt` for alternate OOXML extraction
+3. `antiword` or `catdoc` for true binary `.doc` files
+4. Best-effort raw text decoding if no system tool is available
+
+Without `antiword` or `catdoc`, binary `.doc` files still fall back to best-effort decoding, but extracted text quality may be poor.
 
 ## Troubleshooting
 
