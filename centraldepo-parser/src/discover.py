@@ -52,11 +52,9 @@ async def main() -> None:
     discovered = discover_workflows()
 
     if not discovered:
-        print("No workflows discovered in src/workflows/")
         sys.exit(1)
 
-    names = [get_workflow_definition(wf).name for wf in discovered]
-    print(f"Discovered {len(discovered)} workflow(s): {', '.join(names)}")
+    [get_workflow_definition(wf).name for wf in discovered]
 
     await workflows.run_worker(discovered)
 

@@ -8,7 +8,6 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import List, Tuple
 
 from .downloader import get_company_folder_name
 
@@ -91,7 +90,7 @@ def extract_tar(archive_path: Path, extract_dir: Path) -> int:
     return count
 
 
-def extract_archive(archive_path: Path) -> Tuple[bool, str | None, int]:
+def extract_archive(archive_path: Path) -> tuple[bool, str | None, int]:
     """Extract a single archive file.
 
     Uses atomic extraction pattern: extract to temp dir first, then move files.
@@ -156,7 +155,7 @@ async def extract_company_archives(
     company_name: str,
     folder_path: Path,
     semaphore: asyncio.Semaphore,
-) -> Tuple[str, int, int, List[str]]:
+) -> tuple[str, int, int, list[str]]:
     """Extract all archives for a single company.
 
     Args:
@@ -206,7 +205,7 @@ async def extract_company_archives(
 
 
 async def extract_all_archives(
-    results: List[Tuple[str, List[str]]],
+    results: list[tuple[str, list[str]]],
     output_root: Path,
 ) -> dict:
     """Extract archives for all companies in parallel.

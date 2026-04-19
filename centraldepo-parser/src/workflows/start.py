@@ -49,7 +49,6 @@ async def main() -> None:
 
     api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key:
-        print("Error: MISTRAL_API_KEY is not set. Check your .env file.")
         raise SystemExit(1)
 
     client = get_mistral_client(
@@ -57,12 +56,11 @@ async def main() -> None:
         server_url=os.environ.get("SERVER_URL", "https://api.mistral.ai"),
     )
 
-    result = await client.workflows.execute_workflow_and_wait_async(
+    await client.workflows.execute_workflow_and_wait_async(
         workflow_identifier=workflow_name,
         input=raw_input,
         deployment_name=os.environ.get("DEPLOYMENT_NAME", "default"),
     )
-    print(f"Result: {result}")
 
 
 if __name__ == "__main__":

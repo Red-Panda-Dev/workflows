@@ -9,7 +9,6 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 import aioboto3
 
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 R2_PUBLIC_URL_BASE = "https://pub-e91e2e22fe0049b5b3763b83b6645829.r2.dev"
 
 
-async def upload_to_r2(file_path: Path, r2_key: str) -> Optional[str]:
+async def upload_to_r2(file_path: Path, r2_key: str) -> str | None:
     """Upload file to Cloudflare R2 and return public URL.
 
     Uses aioboto3 for async S3-compatible upload to Cloudflare R2.

@@ -8,7 +8,6 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 import mistralai.workflows as workflows
 
@@ -27,7 +26,7 @@ async def scrape_single_page(
     account_id: str,
     api_token: str,
     timeout: int,
-) -> Optional[List[DividendRecord]]:
+) -> list[DividendRecord] | None:
     """Activity to scrape a single page and return dividend records.
 
     This is the original activity for backward compatibility.
@@ -55,11 +54,11 @@ async def scrape_single_page(
 
 @workflows.activity()
 async def scrape_pages_batch(
-    page_urls: List[Tuple[int, str]],
+    page_urls: list[tuple[int, str]],
     account_id: str,
     api_token: str,
     timeout: int,
-) -> List[ScrapeResult]:
+) -> list[ScrapeResult]:
     """Activity to scrape multiple pages in parallel with connection pooling.
 
     This is the primary performance improvement over scrape_single_page.
@@ -177,7 +176,7 @@ async def save_results(output: WorkflowOutput, output_path: str) -> str:
 
 @workflows.activity()
 async def download_all_results_files(
-    results: List["CompanyResult"],
+    results: list[CompanyResult],
     output_path: str,
 ) -> dict:
     """Activity to download all files for all companies.
@@ -220,7 +219,7 @@ async def download_all_results_files(
 
 @workflows.activity()
 async def extract_all_downloaded_archives(
-    results: List["CompanyResult"],
+    results: list[CompanyResult],
     output_path: str,
 ) -> dict:
     """Activity to extract all downloaded archives for all companies.
@@ -264,7 +263,7 @@ async def extract_all_downloaded_archives(
 
 @workflows.activity()
 async def generate_final_json(
-    results: List["CompanyResult"],
+    results: list[CompanyResult],
     output_root: str,
 ) -> str:
     """Activity to generate final JSON file mapping hashed folders to company info and MD files.
@@ -334,7 +333,7 @@ async def generate_final_json(
 
 @workflows.activity()
 async def convert_all_downloaded_files(
-    results: List["CompanyResult"],
+    results: list[CompanyResult],
     output_path: str,
 ) -> dict:
     """Activity to convert all downloaded files to Markdown format.
@@ -432,7 +431,7 @@ class CentralDepoWorkflow:
         # Get Cloudflare credentials via activity (sandbox restricts os.environ access)
         account_id, api_token = await get_credentials()
 
-        all_records: List[DividendRecord] = []
+        all_records: list[DividendRecord] = []
         total_pages_scraped = 0
         consecutive_failures = 0
 

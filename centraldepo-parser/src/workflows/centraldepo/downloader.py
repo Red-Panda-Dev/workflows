@@ -6,7 +6,6 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import List, Tuple
 from urllib.parse import urlparse
 
 import aiohttp
@@ -58,7 +57,7 @@ async def download_file(
     output_path: Path,
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
-) -> Tuple[str, bool, str | None]:
+) -> tuple[str, bool, str | None]:
     """Download a single file with retry logic and atomic write.
 
     Args:
@@ -127,7 +126,7 @@ async def download_file(
                         )
                         return (url, True, None)
 
-                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                except (TimeoutError, aiohttp.ClientError) as e:
                     os.close(fd)
                     if os.path.exists(tmp_path):
                         os.unlink(tmp_path)
@@ -163,11 +162,11 @@ async def download_file(
 
 async def download_company_files(
     company_name: str,
-    urls: List[str],
+    urls: list[str],
     output_root: Path,
     semaphore: asyncio.Semaphore,
     session: aiohttp.ClientSession,
-) -> Tuple[str, int, int, List[str]]:
+) -> tuple[str, int, int, list[str]]:
     """Download all files for a single company.
 
     Args:
@@ -205,7 +204,7 @@ async def download_company_files(
 
 
 async def download_all_files(
-    results: List[Tuple[str, List[str]]],
+    results: list[tuple[str, list[str]]],
     output_root: Path,
 ) -> dict:
     """Download files for all companies in parallel.

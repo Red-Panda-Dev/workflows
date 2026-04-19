@@ -56,25 +56,19 @@ def main() -> None:
     observer.start()
 
     proc = _start_worker()
-    print(f"[dev] Worker started (pid {proc.pid}). Watching {WATCH_DIR} for changes...")
 
     try:
         while True:
             time.sleep(0.3)
             if handler.consume_restart():
-                print("[dev] Change detected, restarting worker...")
                 _stop_worker(proc)
                 proc = _start_worker()
-                print(f"[dev] Worker restarted (pid {proc.pid}).")
             # If the worker crashed, stop and wait for a file change
             if proc.poll() is not None:
-                print(f"[dev] Worker exited (code {proc.returncode}). Waiting for file changes to restart...")
                 while not handler.consume_restart():
                     time.sleep(0.3)
                 proc = _start_worker()
-                print(f"[dev] Worker restarted (pid {proc.pid}).")
     except KeyboardInterrupt:
-        print("\n[dev] Shutting down...")
         _stop_worker(proc)
         observer.stop()
     observer.join()

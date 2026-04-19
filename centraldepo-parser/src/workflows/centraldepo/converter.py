@@ -9,7 +9,6 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Tuple
 
 import docx2txt
 import xlrd
@@ -169,7 +168,7 @@ def _extract_xls(file_path: Path) -> str:
     return "\n".join(md_lines)
 
 
-def convert_to_markdown(file_path: Path, overwrite: bool = True) -> Tuple[bool, str | None, str | None, Path | None]:
+def convert_to_markdown(file_path: Path, overwrite: bool = True) -> tuple[bool, str | None, str | None, Path | None]:
     """Convert a single file to markdown based on its extension.
 
     Args:
@@ -220,7 +219,7 @@ async def process_pdf_files(
     folder_path: Path,
     company_hash: str,
     overwrite: bool = True,
-) -> Tuple[int, int, List[str], int, List[Tuple[Path, Path]]]:
+) -> tuple[int, int, list[str], int, list[tuple[Path, Path]]]:
     """Process all PDF files in a folder with Mistral OCR.
 
     Uploads PDFs to Cloudflare R2, then passes public URL to Mistral OCR API.
@@ -240,7 +239,7 @@ async def process_pdf_files(
         return (0, 0, [], 0, [])
 
     results = []
-    converted_pairs: List[Tuple[Path, Path]] = []
+    converted_pairs: list[tuple[Path, Path]] = []
 
     for pdf_path in pdf_files:
         try:
@@ -294,7 +293,7 @@ async def convert_company_files(
     folder_path: Path,
     semaphore: asyncio.Semaphore,
     overwrite: bool = True,
-) -> Tuple[str, int, int, List[str], List[Tuple[Path, Path]]]:
+) -> tuple[str, int, int, list[str], list[tuple[Path, Path]]]:
     """Convert all eligible non-PDF files in a company folder.
 
     Args:
@@ -329,7 +328,7 @@ async def convert_company_files(
     results = await asyncio.gather(*tasks)
 
     # Filter out PDF markers and track successful conversions
-    converted_pairs: List[Tuple[Path, Path]] = []
+    converted_pairs: list[tuple[Path, Path]] = []
     success = 0
     failure = 0
     failed_files = []
@@ -356,7 +355,7 @@ async def convert_company_files(
 
 
 async def convert_all_files(
-    results: List[Tuple[str, List[str]]],
+    results: list[tuple[str, list[str]]],
     output_root: Path,
     overwrite: bool = True,
     cleanup_source: bool = True,
@@ -423,7 +422,7 @@ async def convert_all_files(
         "cleaned_up_files": [],
     }
 
-    all_converted_pairs: List[Tuple[Path, Path]] = []
+    all_converted_pairs: list[tuple[Path, Path]] = []
 
     # Aggregate non-PDF results
     for company, success, failure, failed_files, non_pdf_converted_pairs in non_pdf_results:

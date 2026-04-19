@@ -2,7 +2,6 @@
 
 import re
 from collections import defaultdict
-from typing import Dict, List
 from urllib.parse import urljoin
 
 from .config import BASE_URL
@@ -12,7 +11,7 @@ from .models import CompanyResult, DividendRecord
 HREF_RE = re.compile(r'href="([^"]+)"')
 
 
-def parse_items(raw_items: List[dict], page: int) -> List[DividendRecord]:
+def parse_items(raw_items: list[dict], page: int) -> list[DividendRecord]:
     """Parse raw HTML elements into DividendRecord objects.
 
     Args:
@@ -27,7 +26,7 @@ def parse_items(raw_items: List[dict], page: int) -> List[DividendRecord]:
 
     logger = logging.getLogger(__name__)
 
-    records: List[DividendRecord] = []
+    records: list[DividendRecord] = []
     for idx, item in enumerate(raw_items, 1):
         text = (item.get("text") or "").strip()
         html = item.get("html") or ""
@@ -49,7 +48,7 @@ def parse_items(raw_items: List[dict], page: int) -> List[DividendRecord]:
     return records
 
 
-def transform_to_output(records: List[DividendRecord]) -> List[CompanyResult]:
+def transform_to_output(records: list[DividendRecord]) -> list[CompanyResult]:
     """Transform list of records to output format.
 
     Groups all URLs by company name (lowercase for consistent grouping).
@@ -64,21 +63,21 @@ def transform_to_output(records: List[DividendRecord]) -> List[CompanyResult]:
         List of CompanyResult objects grouped by lowercase company name
     """
     # Group by lowercase company name for consistent grouping
-    company_urls: Dict[str, List[str]] = defaultdict(list)
+    company_urls: dict[str, list[str]] = defaultdict(list)
 
     for record in records:
         company_name_lower = record.company_name.lower()
         company_urls[company_name_lower].append(record.archive_url)
 
     # Preserve original case from first occurrence of each company
-    name_mapping: Dict[str, str] = {}
+    name_mapping: dict[str, str] = {}
     for record in records:
         lower = record.company_name.lower()
         if lower not in name_mapping:
             name_mapping[lower] = record.company_name
 
     # Build results with original case, deduplicated URLs
-    results: List[CompanyResult] = []
+    results: list[CompanyResult] = []
     for name_lower, urls in company_urls.items():
         original_name = name_mapping.get(name_lower, name_lower)
         results.append(

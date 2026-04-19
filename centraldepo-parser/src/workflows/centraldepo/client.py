@@ -4,8 +4,8 @@ import asyncio
 import logging
 import random
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, List, Optional, Tuple
 
 import aiohttp
 
@@ -65,7 +65,7 @@ class CircuitBreaker:
         self.reset_timeout = reset_timeout
         self.failures: int = 0
         self.opened: bool = False
-        self.last_failure_time: Optional[float] = None
+        self.last_failure_time: float | None = None
 
     def record_failure(self) -> None:
         """Record a failure. Opens circuit if threshold exceeded."""
@@ -130,7 +130,7 @@ class RateLimiter:
         self.max_delay = max_delay
         self._lock = asyncio.Lock()
 
-    async def adjust_on_failure(self, retry_after: Optional[int] = None) -> None:
+    async def adjust_on_failure(self, retry_after: int | None = None) -> None:
         """Increase delay after a failure.
 
         Args:
@@ -192,12 +192,12 @@ class CloudflareSessionManager:
             "Authorization": f"Bearer {api_token}",
             "Content-Type": "application/json",
         }
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._circuit_breaker = CircuitBreaker()
         self._rate_limiter = RateLimiter()
 
-    async def __aenter__(self) -> "CloudflareSessionManager":
+    async def __aenter__(self) -> CloudflareSessionManager:
         """Enter async context manager - creates session."""
         connector = aiohttp.TCPConnector(
             limit=self.max_concurrent,
@@ -279,7 +279,7 @@ class CloudflareClient:
         self,
         account_id: str,
         api_token: str,
-        session_manager: Optional["CloudflareSessionManager"] = None,
+        session_manager: CloudflareSessionManager | None = None,
     ):
         """Initialize client with Cloudflare credentials.
 
@@ -318,7 +318,7 @@ class CloudflareClient:
         payload: dict,
         timeout: int,
         attempt: int,
-    ) -> Tuple[ScrapeResult, bool]:
+    ) -> tuple[ScrapeResult, bool]:
         """Make a single API request with retry logic. Returns (result, should_retry).
 
         Internal method used by both scrape_page and batch scraping.
@@ -454,7 +454,7 @@ class CloudflareClient:
 
                 return (ScrapeResult(page=page, items=records, success=True, error=None), False)
 
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        except (TimeoutError, aiohttp.ClientError) as e:
             error = f"{type(e).__name__}: {e}"
             logger.warning("Page %d attempt %d/%d: Network error: %s", page, attempt, MAX_RETRIES, error)
 
@@ -512,9 +512,9 @@ class CloudflareClient:
 
     async def scrape_pages_batch(
         self,
-        page_urls: List[Tuple[int, str]],
+        page_urls: list[tuple[int, str]],
         timeout: int,
-    ) -> List[ScrapeResult]:
+    ) -> list[ScrapeResult]:
         """Scrape multiple pages in parallel using batch processing.
 
         This is the primary performance improvement over sequential scraping.

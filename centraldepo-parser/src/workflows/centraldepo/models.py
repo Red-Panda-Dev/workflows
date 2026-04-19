@@ -1,6 +1,6 @@
 """Pydantic data models for CentralDepo workflow."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -16,16 +16,16 @@ class ScrapeResult(BaseModel):
     """Result of scraping a single page."""
 
     page: int = Field(..., description="Page number that was scraped")
-    items: List[DividendRecord] = Field(default_factory=list, description="List of dividend records found on page")
+    items: list[DividendRecord] = Field(default_factory=list, description="List of dividend records found on page")
     success: bool = Field(..., description="Whether the scrape was successful")
-    error: Optional[str] = Field(default=None, description="Error message if scrape failed")
+    error: str | None = Field(default=None, description="Error message if scrape failed")
 
 
 class CompanyResult(BaseModel):
     """Aggregated result for a single company with all its URLs."""
 
     company_name: str = Field(..., description="Name of the company")
-    urls: List[str] = Field(default_factory=list, description="List of archive URLs for this company")
+    urls: list[str] = Field(default_factory=list, description="List of archive URLs for this company")
 
 
 class WorkflowInput(BaseModel):
@@ -58,23 +58,23 @@ class WorkflowInput(BaseModel):
 class WorkflowOutput(BaseModel):
     """Output structure: array of company entries with their URLs and metadata."""
 
-    results: List[CompanyResult] = Field(
+    results: list[CompanyResult] = Field(
         default_factory=list,
         description="List of company results with grouped URLs",
     )
-    stats: Dict[str, Any] = Field(
+    stats: dict[str, Any] = Field(
         default_factory=dict,
         description="Metadata about the scrape operation",
     )
-    download_stats: Optional[Dict[str, Any]] = Field(
+    download_stats: dict[str, Any] | None = Field(
         default=None,
         description="Statistics from file download phase (null if downloads disabled)",
     )
-    extraction_stats: Optional[Dict[str, Any]] = Field(
+    extraction_stats: dict[str, Any] | None = Field(
         default=None,
         description="Statistics from archive extraction phase (null if extraction disabled)",
     )
-    conversion_stats: Optional[Dict[str, Any]] = Field(
+    conversion_stats: dict[str, Any] | None = Field(
         default=None,
         description="Statistics from file conversion to MD phase (null if conversion disabled)",
     )
