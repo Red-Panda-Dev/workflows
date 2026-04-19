@@ -9,8 +9,9 @@ dependencies = [
     "python-dotenv==1.2.2",
     "aiohttp==3.13.5",
     "python-docx==1.2.0",
+    "docx2txt==0.9",
     "xlrd",
-    "textract==1.6.5",
+    "six>=1.17.0",
     "mistralai-workflows-plugins-mistralai==3.1.1",
     "aioboto3==15.5.0"
 ]

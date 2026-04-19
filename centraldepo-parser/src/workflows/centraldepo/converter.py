@@ -6,12 +6,15 @@ PDF files are converted using Mistral OCR via the workflows plugin.
 
 import asyncio
 import logging
+import shutil
+import subprocess
 from pathlib import Path
 from typing import List, Tuple
 
 import docx2txt
 import xlrd
 from docx import Document
+from mistralai.client.models import DocumentURLChunk
 from mistralai.workflows.plugins.mistralai import OCRRequest, mistralai_ocr
 
 from .config import MAX_CONCURRENT_CONVERSIONS
@@ -52,7 +55,7 @@ def _extract_docx(file_path: Path) -> str:
     Returns:
         Markdown content string
     """
-    doc = Document(file_path)
+    doc = Document(str(file_path))
     md_content = []
 
     for para in doc.paragraphs:
@@ -76,12 +79,12 @@ def _extract_doc(file_path: Path) -> str:
     Tries multiple approaches in order:
     1. python-docx (for .docx files mislabeled as .doc)
     2. docx2txt (for .docx files)
-    3. textract with antiword/catdoc (for binary .doc - requires system deps)
+    3. antiword/catdoc subprocess extraction (for binary .doc - requires system deps)
     4. Raw binary reading with common encodings
 
-    Note: For binary .doc support with textract, install:
+    Note: For binary .doc support, install one of:
       - Ubuntu: sudo apt-get install antiword catdoc
-      - Mac: brew install antiword
+      - Mac: brew install antiword catdoc
 
     Args:
         file_path: Path to the .doc file
@@ -91,7 +94,7 @@ def _extract_doc(file_path: Path) -> str:
     """
     # Try 1: python-docx (for .docx files mislabeled as .doc)
     try:
-        doc = Document(file_path)
+        doc = Document(str(file_path))
         return "\n".join([p.text for p in doc.paragraphs])
     except Exception:
         pass
@@ -102,15 +105,27 @@ def _extract_doc(file_path: Path) -> str:
     except Exception:
         pass
 
-    # Try 3: textract with antiword/catdoc for binary .doc
-    try:
-        import textract
+    # Try 3: antiword/catdoc subprocess extraction for binary .doc
+    for tool_name in ("antiword", "catdoc"):
+        tool_path = shutil.which(tool_name)
+        if not tool_path:
+            continue
 
-        content = textract.process(str(file_path))
-        if content:
-            return content.decode("utf-8", errors="replace")
-    except Exception:
-        pass
+        try:
+            result = subprocess.run(
+                [tool_path, str(file_path)],
+                capture_output=True,
+                check=False,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except Exception:
+            continue
+
+        if result.returncode == 0 and result.stdout.strip():
+            logger.debug("Extracted %s with %s", file_path, tool_name)
+            return result.stdout
 
     # Try 4: Raw binary reading with common encodings
     try:
@@ -247,7 +262,7 @@ async def process_pdf_files(
             # Call Mistral OCR with public URL
             request = OCRRequest(
                 model="mistral-ocr-latest",
-                document=public_url,  # Direct URL instead of file_id
+                document=DocumentURLChunk(document_url=public_url, document_name=pdf_path.name),
             )
             result = await mistralai_ocr(request)
 
