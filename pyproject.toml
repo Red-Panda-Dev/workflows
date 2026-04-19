@@ -6,26 +6,29 @@ requires-python = '==3.14.3'
 [project.optional-dependencies]
 style = [
     "ruff==0.15.10",
+    "ty==0.0.31",
 ]
 
 [tool.ruff]
 src = ["src"]
 line-length = 120
+target-version = "py314"
 
 [tool.ruff.format]
 docstring-code-format = true
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I"]
-ignore = ["E501", "E712", "F821"]
+select = ["F", "E", "W", "I", "D", "B", "UP", "C4", "SIM", "PIE", "T20"]
+ignore = ["E501", "E712"]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]
-"tests/**" = ["F841"]
+"__init__.py" = ["F401", "D100"]
+"src/workflows/start.py" = ["E402"]
+"src/discover.py" = ["E402"]
 "src/migrations/**" = ["E101", "W", "E"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["tbel", "flows"]
+known-first-party = ["workflows"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
