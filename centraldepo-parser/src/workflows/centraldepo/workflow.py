@@ -5,12 +5,16 @@ Cloudflare Browser Rendering, with pagination support.
 """
 
 import asyncio
+import json
 import logging
 import os
+import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import mistralai.workflows as workflows
 
+from .ai_distiller import run_ai_distillation
 from .client import CloudflareClient, CloudflareSessionManager
 from .config import BASE_URL, BATCH_SIZE, MAX_CONCURRENT_SCRAPES, SCRAPE_BATCH_DELAY
 from .models import CompanyResult, DividendRecord, ScrapeResult, WorkflowInput, WorkflowOutput
@@ -385,10 +389,96 @@ async def convert_all_downloaded_files(
     return stats
 
 
+@workflows.activity()
+async def run_ai_data_distillation(
+    results: list[tuple[str, list[str]]],
+    output_path: str,
+    reference_date: str | None = None,
+) -> tuple[dict, dict]:
+    """Activity to run AI distillation on all MD files.
+
+    Uses Mistral Large to extract structured dividend data from each company's
+    MD files, validates with outlines, and returns ready-to-save data.
+
+    Args:
+        results: List of (company_name, urls) tuples from previous steps
+        output_path: Path to the JSON output file (used to find output_root)
+        reference_date: Current date in YYYY-MM-DD format. If None, uses today's date.
+
+    Returns:
+        Tuple of (distillation_data, stats)
+        - distillation_data: Dict[str, dict] mapping company_hash to {company_name, files_paths, dividends}
+        - stats: Dictionary with processing statistics
+    """
+    from pathlib import Path
+
+    output_root = Path(output_path).parent
+
+    if reference_date is None:
+        reference_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Convert results to list of tuples
+    results_list = [(r.company_name, r.urls) for r in results]
+
+    distillation_data, stats = await run_ai_distillation(
+        results_list,
+        output_root,
+        reference_date,
+    )
+
+    return (distillation_data, stats)
+
+
+@workflows.activity()
+async def save_distillation_results(
+    distillation_data: dict,
+    output_root: str,
+) -> str:
+    """Activity to save AI distillation results to JSON file atomically.
+
+    Creates a file at output_root/ai_distilled.json with structure:
+    {
+        "<company_name_hash>": {
+            "company_name": "<company lowercased name>",
+            "files_paths": ["<relative path to md file>", ...],
+            "dividends": [<list of extracted JSON data>, ...]
+        },
+        ...
+    }
+
+    Args:
+        distillation_data: Dict mapping company hash to company data
+        output_root: Root output directory path (as string)
+
+    Returns:
+        The absolute path where the file was saved
+
+    Raises:
+        RuntimeError: If file write fails
+    """
+    output_root_path = Path(output_root)
+    output_root_path.mkdir(parents=True, exist_ok=True)
+
+    final_output_path = output_root_path / "ai_distilled.json"
+
+    # Atomic write using temp file
+    fd, tmp_path = tempfile.mkstemp(dir=str(final_output_path.parent), prefix=".ai_distilled_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(distillation_data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, str(final_output_path))
+        logger.info("Saved AI distillation results for %d companies to %s", len(distillation_data), final_output_path)
+        return str(final_output_path.resolve())
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise RuntimeError(f"Failed to save AI distillation results: {e}") from e
+
+
 @workflows.workflow.define(
     name="centraldepo-parser",
     workflow_display_name="CentralDepo Dividend Parser",
-    workflow_description="Scrapes dividend disclosures from centraldepo.by, downloads files, extracts archives, and converts to MD.",
+    workflow_description="Scrapes dividend disclosures from centraldepo.by, downloads files, extracts archives, converts to MD, and extracts structured data with Mistral Large AI.",
 )
 class CentralDepoWorkflow:
     """Workflow that scrapes dividend registry from centraldepo.by.
@@ -403,7 +493,10 @@ class CentralDepoWorkflow:
     7. Downloads all files to company folders (MD5-named)
     8. Extracts archive files (zip, tar, gz, tar.gz, tgz) into company folders
     9. Converts all extracted files to Markdown (docx, doc, xls via Python libs; PDF via OCR)
-    10. Returns aggregated output with download, extraction, and conversion statistics
+    10. Runs AI Data Distillation with Mistral Large + outlines on all MD files
+    11. Saves AI-extracted structured data to ai_distilled.json
+    12. Generates final_mapping.json with company info and MD file paths
+    13. Returns aggregated output with download, extraction, conversion, and distillation statistics
     """
 
     @workflows.workflow.entrypoint
@@ -564,18 +657,37 @@ class CentralDepoWorkflow:
         conversion_stats = await convert_all_downloaded_files(results, saved_path)
         output.conversion_stats = conversion_stats
 
+        # NEW: AI Data Distillation Step
+        # Process all MD files with Mistral Large to extract structured dividend data
+        reference_date = datetime.now().strftime("%Y-%m-%d")
+        distillation_data, distillation_stats = await run_ai_data_distillation(
+            results,
+            saved_path,
+            reference_date,
+        )
+        output.distillation_stats = distillation_stats
+
+        # Save AI distillation results
+        if distillation_data:
+            await save_distillation_results(
+                distillation_data,
+                str(Path(saved_path).parent),
+            )
+
         # Generate final JSON mapping hashed folders to company info and MD files
         final_json_path = await generate_final_json(results, str(Path(saved_path).parent))
 
         logger.info(
             "Workflow complete: %d companies, %d total records, %d files downloaded, "
             "%d archives extracted, %d files converted to MD, "
+            "%d files distilled with AI, "
             "final mapping saved to %s",
             len(results),
             len(all_records),
             download_stats.get("successful", 0),
             extraction_stats.get("successful", 0),
             conversion_stats.get("total_successful", 0),
+            distillation_stats.get("successful", 0),
             final_json_path,
         )
 
