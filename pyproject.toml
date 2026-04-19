@@ -5,7 +5,7 @@ requires-python = '==3.14.3'
 
 [project.optional-dependencies]
 style = [
-    "ruff==0.15.10",
+    "ruff==0.15.11",
     "ty==0.0.31",
 ]
 
