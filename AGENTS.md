@@ -2,7 +2,7 @@
 
 ## Repository overview
 
-Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (docx/doc/xls via Python libs, PDF via Mistral OCR), and saves structured JSON output.
+Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (docx/doc/xls via Python libs, PDF via Mistral OCR after uploading to R2), and saves structured JSON output.
 
 - **Language:** Python 3.14.3
 - **Package manager:** uv
@@ -33,6 +33,7 @@ Root-level `pyproject.toml` and `Makefile` provide workspace-wide ruff config an
 - **`centraldepo-parser/pyproject.toml`** defines the project's own dependencies and dev tools. It has its own `uv.lock` and `.venv`.
 - The Mistral workflow runs activities (functions decorated with `@workflows.activity()`) inside a sandboxed environment. Environment variable access must happen inside activities, not in the workflow class itself.
 - Workflows are auto-discovered by scanning `src/workflows/` recursively for classes with `__workflows_workflow_def` attribute. New workflows should be placed in subpackages under `src/workflows/`.
+- PDF conversion uploads files to Cloudflare R2 first (via `r2_storage.py` / `aioboto3`), then passes the public R2 URL to the Mistral OCR API.
 
 ## Change rules
 
@@ -72,13 +73,13 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 ## Repository-specific gotchas
 
 - **Two separate `uv` environments.** The root `pyproject.toml` has its own `.venv` (for ruff). `centraldepo-parser/` has its own `.venv` with runtime deps. Use the correct venv: root for linting, centraldepo-parser for running.
-- **Env vars required in `.env`.** The worker and PDF OCR need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. Both `.env` files are gitignored.
+- **Env vars required in `.env`.** The worker and PDF OCR need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. R2 uploads need `AWS_S3_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_S3_BUCKET_NAME` (defaults to `tokenbel`) / `AWS_S3_REGION` (defaults to `auto`). All `.env` files are gitignored.
 - **Root project name is a typo:** `worflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
 - **`example.py` duplicates logic.** The standalone scraper in `example.py` mirrors the workflow in `src/workflows/centraldepo/`. Changes to parsing/scraping logic should be applied to both places if they need to stay in sync.
 
 ## Python comments and docstrings
 
 When editing Python files, follow the policy in
-`.skills/python-docs-and-comments.md`.
+`.skills/python_docs_and_comments.md`.
 
 This is mandatory for public APIs, aiohttp handlers, and non-trivial async workflows.
