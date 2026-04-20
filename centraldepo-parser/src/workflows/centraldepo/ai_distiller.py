@@ -17,7 +17,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .config import AI_MODEL, AI_TEMPERATURE, MAX_CONCURRENT_AI_REQUESTS
+from .config import (
+    AI_MAX_RETRIES,
+    AI_MODEL,
+    AI_RETRY_BACKOFF_BASE,
+    AI_TEMPERATURE,
+    MAX_CONCURRENT_AI_REQUESTS,
+)
 from .models import DividendData
 
 logger = logging.getLogger(__name__)
@@ -92,36 +98,58 @@ async def process_single_file(
         return (False, None, error_msg)
 
     # Process with Mistral Large using structured output (chat.parse)
-    try:
-        from mistralai.client import Mistral as MistralClient
+    from mistralai.client import Mistral as MistralClient
 
-        client = MistralClient(api_key=os.environ.get("MISTRAL_API_KEY"))
-        response = client.chat.parse(
-            model=model_name,
-            messages=[{"role": "user", "content": formatted_prompt}],
-            temperature=temperature,
-            response_format=DividendData,
-        )
+    client = MistralClient(api_key=os.environ.get("MISTRAL_API_KEY"))
 
-        parsed = response.choices[0].message.parsed
-        if parsed is None:
-            raise ValueError("Mistral returned no parsed content")
+    last_error: Exception | None = None
+    for attempt in range(AI_MAX_RETRIES):
+        try:
+            response = client.chat.parse(
+                model=model_name,
+                messages=[{"role": "user", "content": formatted_prompt}],
+                temperature=temperature,
+                response_format=DividendData,
+            )
 
-        result_dict = json.loads(parsed.model_dump_json())
+            parsed = response.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError("Mistral returned no parsed content")
 
-        logger.info(
-            "Successfully distilled %s: has_dividends=%s, payouts=%d",
-            md_path.name,
-            result_dict.get("has_dividends"),
-            len(result_dict.get("share_payouts", [])),
-        )
+            result_dict = json.loads(parsed.model_dump_json())
 
-        return (True, result_dict, None)
+            logger.info(
+                "Successfully distilled %s: has_dividends=%s, payouts=%d",
+                md_path.name,
+                result_dict.get("has_dividends"),
+                len(result_dict.get("share_payouts", [])),
+            )
 
-    except Exception as e:
-        error_msg = f"AI processing failed for {md_path}: {type(e).__name__}: {e}"
-        logger.error(error_msg)
-        return (False, None, error_msg)
+            return (True, result_dict, None)
+
+        except Exception as e:
+            last_error = e
+            error_str = str(e)
+            is_retryable = any(s in error_str for s in ("503", "502", "429", "reset reason", "timeout", "overload"))
+
+            if is_retryable and attempt < AI_MAX_RETRIES - 1:
+                wait = AI_RETRY_BACKOFF_BASE ** (attempt + 1)
+                logger.warning(
+                    "Retryable error on attempt %d/%d for %s, waiting %ds: %s",
+                    attempt + 1,
+                    AI_MAX_RETRIES,
+                    md_path.name,
+                    wait,
+                    e,
+                )
+                await asyncio.sleep(wait)
+                continue
+
+            error_msg = f"AI processing failed for {md_path}: {type(e).__name__}: {e}"
+            logger.error(error_msg)
+            return (False, None, error_msg)
+
+    return (False, None, f"AI processing failed for {md_path}: {type(last_error).__name__}: {last_error}")
 
 
 async def process_company_files(
