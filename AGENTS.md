@@ -2,7 +2,7 @@
 
 ## Repository overview
 
-Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (docx/doc/xls via Python libs, PDF via Mistral OCR after uploading to R2), and saves structured JSON output.
+Python workspace containing a Mistral Workflows project that scrapes dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API. The pipeline scrapes paginated records, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (docx/doc/xls via Python libs, PDF via Mistral OCR as base64 data URI), runs AI distillation with Mistral Large to extract structured dividend data, and saves results to JSON.
 
 - **Language:** Python 3.14.3
 - **Package manager:** uv
@@ -73,7 +73,7 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 ## Repository-specific gotchas
 
 - **Two separate `uv` environments.** The root `pyproject.toml` has its own `.venv` (for ruff). `centraldepo-parser/` has its own `.venv` with runtime deps. Use the correct venv: root for linting, centraldepo-parser for running.
-- **Env vars required in `.env`.** The worker and PDF OCR need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. R2 uploads need `AWS_S3_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_S3_BUCKET_NAME` (defaults to `tokenbel`) / `AWS_S3_REGION` (defaults to `auto`). All `.env` files are gitignored.
+- **Env vars required in `.env`.** The worker, PDF OCR, and AI distillation need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. All `.env` files are gitignored.
 - **Root project name is a typo:** `worflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
 - **`example.py` duplicates logic.** The standalone scraper in `example.py` mirrors the workflow in `src/workflows/centraldepo/`. Changes to parsing/scraping logic should be applied to both places if they need to stay in sync.
 

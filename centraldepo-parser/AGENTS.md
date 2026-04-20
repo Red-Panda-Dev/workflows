@@ -2,7 +2,7 @@
 
 ## Scope
 
-The CentralDepo Dividend Parser — a Mistral Workflow that scrapes paginated dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (non-PDF locally, PDF via Mistral OCR after R2 upload), and saves structured results to JSON.
+The CentralDepo Dividend Parser — a Mistral Workflow that scrapes paginated dividend disclosure records from `centraldepo.by` via the Cloudflare Browser Rendering API, groups them by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (non-PDF locally, PDF via Mistral OCR as base64 data URI), runs AI distillation with Mistral Large to extract structured dividend data, and saves results to JSON.
 
 ## What lives here
 
@@ -14,14 +14,16 @@ src/
     ├── __init__.py            # Empty package marker (auto-discovery entry point)
     ├── start.py               # CLI to trigger workflow execution via Mistral client
     └── centraldepo/           # Core workflow package
-        ├── config.py          # Constants: BASE_URL, SCRAPE_API, SELECTOR, retry/concurrency defaults
-        ├── models.py          # Pydantic models: DividendRecord, ScrapeResult, WorkflowInput/Output
+        ├── config.py          # Constants: BASE_URL, SCRAPE_API, SELECTOR, retry/concurrency/AI defaults
+        ├── models.py          # Pydantic models: DividendRecord, ScrapeResult, WorkflowInput/Output, AI models
         ├── parser.py          # HTML parsing: extract records, group by company
-        ├── client.py          # Cloudflare Browser Rendering HTTP client with retries
+        ├── client.py          # Cloudflare Browser Rendering HTTP client with retries and circuit breaker
         ├── downloader.py      # Concurrent file download with retry/backoff per company
         ├── extractor.py       # Archive extraction (ZIP, TAR, GZ, TGZ) with atomic writes
         ├── converter.py       # Document-to-Markdown: docx/doc/xls via Python libs, PDF via Mistral OCR
-        ├── r2_storage.py      # Cloudflare R2 upload (S3-compatible) for PDF → Mistral OCR pipeline
+        ├── ai_distiller.py    # AI distillation: Mistral Large structured extraction of dividend data
+        ├── prompts/           # Prompt templates for AI distillation
+        │   └── dividends_parsing.md  # Main extraction prompt (BYN currency rules, schema definition)
         └── workflow.py        # Mistral workflow + activities (orchestration entry point)
 example.py                     # Standalone async scraper (non-workflow version of same logic)
 output/                        # JSON output + downloaded/extracted/converted files (gitignored)
@@ -35,8 +37,8 @@ output/                        # JSON output + downloaded/extracted/converted fi
 - **Pagination convention:** Page 1 uses the base URL with no query params. Page 2+ appends `?PAGEN_1=<n>`. Hardcoded in `config.py:BASE_URL` and `_build_page_url()`.
 - **CSS selector:** `.news-item` finds dividend entries. If the target site changes markup, update `config.py:SELECTOR` and the Cloudflare API payload in `client.py`.
 - **Concurrency limits:** `downloader.py` and `extractor.py` each have their own concurrency limit (`MAX_CONCURRENT_DOWNLOADS`, `MAX_CONCURRENT_EXTRACTS`) defined in `config.py`. Conversion concurrency is `MAX_CONCURRENT_CONVERSIONS` in `config.py`.
-- **Conversion split:** Non-PDF files (docx, doc, xls) are converted locally via `python-docx`, `docx2txt`, `xlrd`. PDF files are uploaded to Cloudflare R2 via `r2_storage.py`, then the public R2 URL is passed to Mistral OCR (`mistralai_ocr`) which requires `MISTRAL_API_KEY`.
-- **R2 upload contract:** `r2_storage.py` uses `aioboto3` for async S3-compatible uploads. Requires `AWS_S3_URL`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` env vars. Bucket defaults to `tokenbel`, region defaults to `auto`. Returns a public URL on the `pub-...r2.dev` domain.
+- **Conversion split:** Non-PDF files (docx, doc, xls) are converted locally via `python-docx`, `docx2txt`, `xlrd`. PDF files are read as base64 data URIs and passed directly to Mistral OCR (`mistralai_ocr`) which requires `MISTRAL_API_KEY`. No intermediate storage or R2 upload is used.
+- **AI distillation:** After conversion, all MD files are processed through `ai_distiller.py` which uses Mistral Large structured parsing (`chat.parse_async` with `DividendData` Pydantic model) to extract dividend data. The prompt template at `prompts/dividends_parsing.md` defines extraction rules. Companies are processed sequentially to avoid rate limits.
 
 ## Safe change rules
 
@@ -73,6 +75,7 @@ make execute workflow=centraldepo-parser input='{"max_pages": 2}'
 ## Nearby docs
 
 - `README.md` — project setup, commands, data model, troubleshooting
+- `src/workflows/centraldepo/AGENTS.md` — pipeline internals, data contracts, activity boundaries, per-file editing rules
 - `.agents/skills/workflows/SKILL.md` — Mistral Workflows SDK reference
 - Root `AGENTS.md` — workspace-wide conventions and ruff config
 - Root `ARCHITECTURE.md` — full code map, logical layers, data flow, invariants
