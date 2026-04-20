@@ -1,8 +1,17 @@
 """Pydantic data models for CentralDepo workflow."""
 
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+class PeriodType(StrEnum):
+    """Type of dividend period for DB mapping."""
+
+    annual = "annual"
+    halfyear = "halfyear"
+    quarterly = "quarterly"
 
 
 class DividendRecord(BaseModel):
@@ -113,9 +122,21 @@ class SharePayout(BaseModel):
         ...,
         description="Type of shares (common, preferred, or unspecified)",
     )
-    amount: float = Field(
-        ...,
-        description="Dividend amount per share (numeric, always positive)",
+    period_year: int | None = Field(
+        default=None,
+        description="Year of the dividend period (e.g., 2024). Null if not explicitly stated or safely mappable.",
+    )
+    period_type: PeriodType | None = Field(
+        default=None,
+        description="Type of dividend period. Null if not explicitly stated or safely mappable.",
+    )
+    period_number: int | None = Field(
+        default=None,
+        description="Number within the period type (1-4 for quarterly, 1-2 for halfyear, 1 for annual). Null if not applicable.",
+    )
+    amount_per_share: float | None = Field(
+        default=None,
+        description="Gross dividend amount per one share. Numeric or null if not clearly stated.",
     )
     currency: Literal["BYN"] = Field(
         ...,
