@@ -1,12 +1,12 @@
 """AI Data Distillation for CentralDepo workflow.
 
 Uses Mistral Large to extract structured dividend data from MD files,
-validates with outlines using Pydantic models, and returns typed data structures.
+validates with Pydantic models via chat.parse, and returns typed data structures.
 
 This module handles:
 - Loading and formatting prompt templates
 - Processing MD files through Mistral Large
-- Validating output with outlines + Pydantic models
+- Validating output with Pydantic models
 - Managing concurrency and error handling
 """
 
@@ -16,8 +16,6 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-
-from mistralai.client import Mistral as MistralClient
 
 from .config import AI_MODEL, AI_TEMPERATURE, MAX_CONCURRENT_AI_REQUESTS
 from .models import DividendData
@@ -95,6 +93,8 @@ async def process_single_file(
 
     # Process with Mistral Large using structured output (chat.parse)
     try:
+        from mistralai.client import Mistral as MistralClient
+
         client = MistralClient(api_key=os.environ.get("MISTRAL_API_KEY"))
         response = client.chat.parse(
             model=model_name,
