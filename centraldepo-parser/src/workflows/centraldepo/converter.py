@@ -1,10 +1,12 @@
 """Document conversion logic for CentralDepo workflow.
 
 Converts company files (docx, doc, xls) to Markdown format.
-PDF files are converted using Mistral OCR via the workflows plugin.
+PDF files are converted using Mistral OCR via the workflows plugin,
+passing documents as base64 data URIs.
 """
 
 import asyncio
+import base64
 import logging
 import shutil
 import subprocess
@@ -16,9 +18,8 @@ from docx import Document
 from mistralai.client.models import DocumentURLChunk
 from mistralai.workflows.plugins.mistralai import OCRRequest, mistralai_ocr
 
-from .config import MAX_CONCURRENT_CONVERSIONS
+from .config import MAX_CONCURRENT_CONVERSIONS, MAX_PDF_SIZE_BYTES
 from .downloader import get_company_folder_name
-from .r2_storage import upload_to_r2
 
 logger = logging.getLogger(__name__)
 
@@ -217,16 +218,14 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> tuple[bool, 
 
 async def process_pdf_files(
     folder_path: Path,
-    company_hash: str,
     overwrite: bool = True,
 ) -> tuple[int, int, list[str], int, list[tuple[Path, Path]]]:
     """Process all PDF files in a folder with Mistral OCR.
 
-    Uploads PDFs to Cloudflare R2, then passes public URL to Mistral OCR API.
+    Reads PDF bytes and passes them to Mistral OCR as a base64 data URI.
 
     Args:
         folder_path: Path to folder containing PDF files
-        company_hash: MD5 hash of company name for R2 path construction
         overwrite: Whether to overwrite existing .md files (default: True)
 
     Returns:
@@ -245,31 +244,30 @@ async def process_pdf_files(
         try:
             md_path = pdf_path.with_suffix(".md")
 
-            # Skip if MD exists and not overwriting
             if md_path.exists() and not overwrite:
                 results.append((False, "MD_ALREADY_EXISTS", str(pdf_path)))
                 continue
 
-            # Upload to R2
-            r2_key = f"temps/payouts/{company_hash}/{pdf_path.name}"
-            public_url = await upload_to_r2(pdf_path, r2_key)
+            raw_bytes = await asyncio.to_thread(pdf_path.read_bytes)
 
-            if not public_url:
-                results.append((False, "R2_UPLOAD_FAILED", str(pdf_path)))
+            if len(raw_bytes) > MAX_PDF_SIZE_BYTES:
+                results.append((False, f"PDF_TOO_LARGE({len(raw_bytes)} bytes)", str(pdf_path)))
                 continue
 
-            # Call Mistral OCR with public URL
+            b64 = base64.b64encode(raw_bytes).decode("ascii")
+            del raw_bytes
+
+            data_uri = f"data:application/pdf;base64,{b64}"
+            del b64
+
             request = OCRRequest(
                 model="mistral-ocr-latest",
-                document=DocumentURLChunk(document_url=public_url, document_name=pdf_path.name),
+                document=DocumentURLChunk(document_url=data_uri, document_name=pdf_path.name),
             )
             result = await mistralai_ocr(request)
 
-            # Extract text from OCR response pages
-            # OCR response has pages array, each with markdown content
             ocr_text = "\n\n".join(page.markdown for page in result.pages)
 
-            # Write MD file
             md_path.write_text(ocr_text, encoding="utf-8")
             logger.info("OCR converted %s to %s (%d chars)", pdf_path, md_path, len(ocr_text))
             results.append((True, None, str(pdf_path)))
@@ -403,9 +401,8 @@ async def convert_all_files(
 
     # Process PDF files for all companies (using Mistral OCR)
     pdf_tasks = []
-    for company_name, folder_path in pdf_folders:
-        folder_name = get_company_folder_name(company_name)
-        task = asyncio.create_task(process_pdf_files(folder_path, folder_name, overwrite))
+    for _company_name, folder_path in pdf_folders:
+        task = asyncio.create_task(process_pdf_files(folder_path, overwrite))
         pdf_tasks.append(task)
 
     pdf_results = await asyncio.gather(*pdf_tasks)
