@@ -5,7 +5,7 @@ installdeps:
 	uv sync
 
 ## Auto-discover all workflows and start the worker
-start-worker:
+start-worker: installdeps
 	uv run python src/discover.py
 
 ## Trigger a workflow execution
