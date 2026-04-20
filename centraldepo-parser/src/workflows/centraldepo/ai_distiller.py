@@ -362,6 +362,7 @@ async def run_ai_distillation(
     for cn, urls in results:
         result = await _process_company(cn, urls)
         company_results.append(result)
+        await asyncio.sleep(1)
 
     # Aggregate results
     for folder_name, company_name, success, failure, results_dict, failed in company_results:
