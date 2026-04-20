@@ -33,7 +33,7 @@ Root-level `pyproject.toml` and `Makefile` provide workspace-wide ruff config an
 - **`centraldepo-parser/pyproject.toml`** defines the project's own dependencies and dev tools. It has its own `uv.lock` and `.venv`.
 - The Mistral workflow runs activities (functions decorated with `@workflows.activity()`) inside a sandboxed environment. Environment variable access must happen inside activities, not in the workflow class itself.
 - Workflows are auto-discovered by scanning `src/workflows/` recursively for classes with `__workflows_workflow_def` attribute. New workflows should be placed in subpackages under `src/workflows/`.
-- PDF conversion uploads files to Cloudflare R2 first (via `r2_storage.py` / `aioboto3`), then passes the public R2 URL to the Mistral OCR API.
+- PDF conversion reads files as base64 data URIs and passes them directly to the Mistral OCR API (no intermediate storage).
 
 ## Change rules
 
