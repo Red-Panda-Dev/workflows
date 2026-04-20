@@ -49,7 +49,6 @@ MAX_CONCURRENT_CONVERSIONS = 5  # Concurrent file-to-MD conversions
 MAX_PDF_SIZE_BYTES = 50 * 1024 * 1024  # 50 MiB guard for base64 OCR payload
 
 # AI Distillation settings
-MAX_CONCURRENT_AI_REQUESTS = 2  # Concurrent Mistral Large API requests (rate limited)
 AI_MODEL = "mistral-large-latest"  # Model identifier for AI distillation
 AI_TIMEOUT = 60  # Seconds timeout for individual AI requests
 AI_TEMPERATURE = 0.0  # Deterministic output for consistent results

@@ -5,9 +5,9 @@ validates with Pydantic models via asynchronous chat.parse, and returns typed da
 
 This module handles:
 - Loading and formatting prompt templates
-- Processing MD files through Mistral Large
+- Processing MD files through Mistral Large (sequentially, 1 call at a time)
 - Validating output with Pydantic models
-- Managing concurrency and error handling
+- Error handling with retry logic
 """
 
 import asyncio
@@ -21,7 +21,6 @@ from .config import (
     AI_MODEL,
     AI_RETRY_BACKOFF_BASE,
     AI_TEMPERATURE,
-    MAX_CONCURRENT_AI_REQUESTS,
 )
 from .models import DividendData
 
@@ -242,10 +241,9 @@ async def process_company_files(
     reference_date: str,
     model_name: str = AI_MODEL,
     temperature: float = AI_TEMPERATURE,
-    max_concurrent: int = MAX_CONCURRENT_AI_REQUESTS,
     distiller: AIDistiller | None = None,
 ) -> tuple[int, int, dict[str, dict[str, Any]], list[str]]:
-    """Process all MD files for a single company with controlled concurrency.
+    """Process all MD files for a single company sequentially.
 
     Args:
         company_name: Company name for logging context
@@ -253,7 +251,6 @@ async def process_company_files(
         reference_date: Current date in YYYY-MM-DD format
         model_name: Model identifier to use
         temperature: Model temperature
-        max_concurrent: Maximum concurrent AI requests per company
         distiller: Optional shared distiller instance for client reuse.
 
     Returns:
@@ -263,21 +260,16 @@ async def process_company_files(
     if not md_files:
         return (0, 0, {}, [])
 
-    semaphore = asyncio.Semaphore(max_concurrent)
-
-    async def _process_with_semaphore(md_path: Path) -> tuple[bool, dict[str, Any] | None, str | None]:
-        async with semaphore:
-            return await process_single_file(
-                md_path,
-                reference_date,
-                model_name=model_name,
-                temperature=temperature,
-                distiller=distiller,
-            )
-
-    tasks = [asyncio.create_task(_process_with_semaphore(md_path)) for md_path in md_files]
-
-    results = await asyncio.gather(*tasks)
+    results = []
+    for md_path in md_files:
+        result = await process_single_file(
+            md_path,
+            reference_date,
+            model_name=model_name,
+            temperature=temperature,
+            distiller=distiller,
+        )
+        results.append(result)
 
     success_count = sum(1 for suc, _, _ in results if suc)
     failure_count = len(results) - success_count
@@ -302,7 +294,7 @@ async def run_ai_distillation(
     output_root: Path,
     reference_date: str,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Run AI distillation for all companies with company-level parallelism.
+    """Run AI distillation for all companies sequentially.
 
     Processes MD files through Mistral Large and returns structured data
     ready for saving.
@@ -336,42 +328,40 @@ async def run_ai_distillation(
                 distiller = AIDistiller(reference_date=reference_date)
             return distiller
 
-    # Per user decision: parallel company processing
-    company_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AI_REQUESTS)
-
     async def _process_company(company_name: str, _urls: list[str]):
         """Process a single company's MD files."""
-        async with company_semaphore:
-            folder_name = get_company_folder_name(company_name)
-            folder_path = output_root / folder_name
+        folder_name = get_company_folder_name(company_name)
+        folder_path = output_root / folder_name
 
-            if not folder_path.exists():
-                logger.warning("Company folder not found: %s", folder_path)
-                return (folder_name, company_name, 0, 0, {}, [])
+        if not folder_path.exists():
+            logger.warning("Company folder not found: %s", folder_path)
+            return (folder_name, company_name, 0, 0, {}, [])
 
-            # Find all MD files
-            md_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".md"]
+        # Find all MD files
+        md_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".md"]
 
-            if not md_files:
-                logger.debug("No MD files found for %s", company_name)
-                return (folder_name, company_name, 0, 0, {}, [])
+        if not md_files:
+            logger.debug("No MD files found for %s", company_name)
+            return (folder_name, company_name, 0, 0, {}, [])
 
-            company_distiller = await _get_distiller()
+        company_distiller = await _get_distiller()
 
-            return (
-                folder_name,
+        return (
+            folder_name,
+            company_name,
+            *await process_company_files(
                 company_name,
-                *await process_company_files(
-                    company_name,
-                    md_files,
-                    reference_date,
-                    distiller=company_distiller,
-                ),
-            )
+                md_files,
+                reference_date,
+                distiller=company_distiller,
+            ),
+        )
 
-    # Create tasks for all companies
-    tasks = [_process_company(cn, urls) for cn, urls in results]
-    company_results = await asyncio.gather(*tasks)
+    # Process companies sequentially
+    company_results = []
+    for cn, urls in results:
+        result = await _process_company(cn, urls)
+        company_results.append(result)
 
     # Aggregate results
     for folder_name, company_name, success, failure, results_dict, failed in company_results:
