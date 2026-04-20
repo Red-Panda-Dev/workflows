@@ -391,7 +391,7 @@ async def convert_all_downloaded_files(
 
 @workflows.activity()
 async def run_ai_data_distillation(
-    results: list[tuple[str, list[str]]],
+    results: list[CompanyResult],
     output_path: str,
     reference_date: str | None = None,
 ) -> tuple[dict, dict]:
@@ -401,7 +401,7 @@ async def run_ai_data_distillation(
     MD files, validates with outlines, and returns ready-to-save data.
 
     Args:
-        results: List of (company_name, urls) tuples from previous steps
+        results: List of CompanyResult objects from previous steps
         output_path: Path to the JSON output file (used to find output_root)
         reference_date: Current date in YYYY-MM-DD format. If None, uses today's date.
 
@@ -417,7 +417,6 @@ async def run_ai_data_distillation(
     if reference_date is None:
         reference_date = datetime.now().strftime("%Y-%m-%d")
 
-    # Convert results to list of tuples
     results_list = [(r.company_name, r.urls) for r in results]
 
     distillation_data, stats = await run_ai_distillation(
