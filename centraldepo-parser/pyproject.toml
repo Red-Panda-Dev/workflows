@@ -13,7 +13,6 @@ dependencies = [
     "xlrd==2.0.2",
     "mistralai-workflows-plugins-mistralai==3.1.1",
     "aioboto3==15.5.0",
-    "outlines[mistral]==1.2.12",
     "mistralai==2.4.0",
 ]
 

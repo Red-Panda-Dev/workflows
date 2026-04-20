@@ -11,11 +11,13 @@ This module handles:
 """
 
 import asyncio
+import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
-from outlines import models
+from mistralai.client import Mistral as MistralClient
 
 from .config import AI_MODEL, AI_TEMPERATURE, MAX_CONCURRENT_AI_REQUESTS
 from .models import DividendData
@@ -52,7 +54,7 @@ async def process_single_file(
 ) -> tuple[bool, dict[str, Any] | None, str | None]:
     """Process a single MD file through AI distillation with Mistral Large.
 
-    Uses outlines to call Mistral Large with DividendData Pydantic model
+    Uses Mistral SDK chat.parse with DividendData Pydantic model
     for structured output validation.
 
     Args:
@@ -91,18 +93,21 @@ async def process_single_file(
         logger.error(error_msg)
         return (False, None, error_msg)
 
-    # Process with Mistral Large using outlines + Pydantic model
+    # Process with Mistral Large using structured output (chat.parse)
     try:
-        model = models.mistral(model_name, temperature=temperature)
-
-        # Use DividendData Pydantic model as output_type for structured validation
-        result = model.generate(
-            prompt=formatted_prompt,
-            output_type=DividendData,
+        client = MistralClient(api_key=os.environ.get("MISTRAL_API_KEY"))
+        response = client.chat.parse(
+            model=model_name,
+            messages=[{"role": "user", "content": formatted_prompt}],
+            temperature=temperature,
+            response_format=DividendData,
         )
 
-        # Convert Pydantic model to dict for serialization
-        result_dict = result.model_dump()
+        parsed = response.choices[0].message.parsed
+        if parsed is None:
+            raise ValueError("Mistral returned no parsed content")
+
+        result_dict = json.loads(parsed.model_dump_json())
 
         logger.info(
             "Successfully distilled %s: has_dividends=%s, payouts=%d",

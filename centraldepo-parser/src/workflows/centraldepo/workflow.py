@@ -492,7 +492,7 @@ class CentralDepoWorkflow:
     7. Downloads all files to company folders (MD5-named)
     8. Extracts archive files (zip, tar, gz, tar.gz, tgz) into company folders
     9. Converts all extracted files to Markdown (docx, doc, xls via Python libs; PDF via OCR)
-    10. Runs AI Data Distillation with Mistral Large + outlines on all MD files
+    10. Runs AI Data Distillation with Mistral Large on all MD files
     11. Saves AI-extracted structured data to ai_distilled.json
     12. Generates final_mapping.json with company info and MD file paths
     13. Returns aggregated output with download, extraction, conversion, and distillation statistics
