@@ -4,13 +4,10 @@ Your task is to read ONE document and return a single JSON object with normalize
 
 ## Input
 
-You will receive the content of one document in:
+You will receive:
 
-`{{DOCUMENT_TEXT}}`
- 
-Also you need to generate:
-
-`{{REFERENCE_DATE}}` - use the current execution date.
+- the content of one document in the user message
+- `{{REFERENCE_DATE}}` as the current execution date
 
 ---
 
@@ -333,6 +330,7 @@ Before returning JSON, verify:
 
 ---
 
-## Document to process
+## Document handling
 
-{{DOCUMENT_TEXT}}
+The document text is provided in the user message. Use only that content as
+the source for extraction.

@@ -397,8 +397,8 @@ async def run_ai_data_distillation(
 ) -> tuple[dict, dict]:
     """Activity to run AI distillation on all MD files.
 
-    Uses Mistral Large to extract structured dividend data from each company's
-    MD files, validates with outlines, and returns ready-to-save data.
+    Uses Mistral Large structured parsing to extract dividend data from each
+    company's MD files and returns ready-to-save data.
 
     Args:
         results: List of CompanyResult objects from previous steps

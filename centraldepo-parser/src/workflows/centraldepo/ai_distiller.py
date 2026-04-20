@@ -1,7 +1,7 @@
 """AI Data Distillation for CentralDepo workflow.
 
 Uses Mistral Large to extract structured dividend data from MD files,
-validates with Pydantic models via chat.parse, and returns typed data structures.
+validates with Pydantic models via asynchronous chat.parse, and returns typed data structures.
 
 This module handles:
 - Loading and formatting prompt templates
@@ -11,7 +11,6 @@ This module handles:
 """
 
 import asyncio
-import json
 import logging
 import os
 from pathlib import Path
@@ -30,6 +29,131 @@ logger = logging.getLogger(__name__)
 
 # Prompt template - loaded lazily for performance
 _PROMPT_TEMPLATE: str | None = None
+
+
+class AIDistiller:
+    """AI distillation runtime with shared Mistral client and prompt context.
+
+    The instance is intended to be reused across many document calls within one
+    workflow activity execution so SDK client construction and prompt rendering
+    happen once.
+
+    Args:
+        reference_date: Current execution date in YYYY-MM-DD format.
+        model_name: Mistral model identifier.
+        temperature: Model temperature.
+
+    Raises:
+        ValueError: If `MISTRAL_API_KEY` is not configured.
+    """
+
+    def __init__(
+        self,
+        reference_date: str,
+        model_name: str = AI_MODEL,
+        temperature: float = AI_TEMPERATURE,
+    ) -> None:
+        """Initialize the distiller with prompt context and API client.
+
+        Args:
+            reference_date: Current execution date in YYYY-MM-DD format.
+            model_name: Mistral model identifier.
+            temperature: Model temperature.
+
+        Raises:
+            ValueError: If `MISTRAL_API_KEY` is not configured.
+        """
+        from mistralai.client import Mistral as MistralClient
+
+        api_key = os.environ.get("MISTRAL_API_KEY")
+        if not api_key:
+            raise ValueError("MISTRAL_API_KEY environment variable required for AI distillation")
+
+        prompt_template = _load_prompt_template()
+        self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
+        self.model_name = model_name
+        self.temperature = temperature
+        self.client = MistralClient(api_key=api_key)
+
+    async def _extract_dividend_data(self, ocr_text: str) -> DividendData:
+        """Extract and validate dividend data from one OCR markdown payload.
+
+        Args:
+            ocr_text: OCR markdown content for one converted document.
+
+        Returns:
+            Validated dividend extraction model.
+
+        Raises:
+            ValueError: If the model returns no choices or no parsed payload.
+        """
+        logger.info("Starting dividend extraction from OCR text")
+
+        completion = await self.client.chat.parse_async(
+            model=self.model_name,
+            messages=[
+                {"role": "system", "content": self.system_instruction},
+                {"role": "user", "content": ocr_text},
+            ],
+            response_format=DividendData,
+            temperature=self.temperature,
+            max_tokens=4000,
+        )
+
+        if not completion.choices:
+            raise ValueError("Mistral chat.parse returned no choices")
+
+        message = completion.choices[0].message
+        if message is None:
+            raise ValueError("Mistral chat.parse returned empty message payload")
+
+        result = message.parsed
+        if result is None:
+            raise ValueError("Mistral chat.parse returned empty parsed payload")
+
+        if not isinstance(result, DividendData):
+            result = DividendData.model_validate(result)
+
+        logger.info("Structured response parsed successfully")
+        return result
+
+    async def extract_dividend_data_with_retry(self, ocr_text: str, md_path: Path) -> DividendData:
+        """Extract dividend data with retry/backoff for transient API failures.
+
+        Args:
+            ocr_text: OCR markdown content for one converted document.
+            md_path: Source markdown file path for logging context.
+
+        Returns:
+            Validated dividend extraction model.
+
+        Raises:
+            Exception: Propagates terminal SDK/validation errors after retries.
+        """
+        for attempt in range(AI_MAX_RETRIES):
+            try:
+                return await self._extract_dividend_data(ocr_text)
+            except Exception as e:
+                error_str = str(e).lower()
+                is_retryable = any(s in error_str for s in ("503", "502", "429", "reset reason", "timeout", "overload"))
+
+                if is_retryable and attempt < AI_MAX_RETRIES - 1:
+                    wait = AI_RETRY_BACKOFF_BASE ** (attempt + 1)
+                    logger.warning(
+                        "Retryable AI error on attempt %d/%d for %s with model=%s, waiting %ds: %s",
+                        attempt + 1,
+                        AI_MAX_RETRIES,
+                        md_path.name,
+                        self.model_name,
+                        wait,
+                        e,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+
+                raise
+
+        raise RuntimeError(f"Unexpected retry loop completion for {md_path}")
 
 
 def _load_prompt_template() -> str:
@@ -55,10 +179,11 @@ async def process_single_file(
     reference_date: str,
     model_name: str = AI_MODEL,
     temperature: float = AI_TEMPERATURE,
+    distiller: AIDistiller | None = None,
 ) -> tuple[bool, dict[str, Any] | None, str | None]:
     """Process a single MD file through AI distillation with Mistral Large.
 
-    Uses Mistral SDK chat.parse with DividendData Pydantic model
+    Uses Mistral SDK async chat.parse with DividendData Pydantic model
     for structured output validation.
 
     Args:
@@ -66,6 +191,7 @@ async def process_single_file(
         reference_date: Current date in YYYY-MM-DD format for prompt context
         model_name: Model identifier (default: mistral-large-latest)
         temperature: Model temperature (default: 0.0 for deterministic)
+        distiller: Optional shared distiller instance for client reuse.
 
     Returns:
         Tuple of (success, result_dict_or_none, error_message_or_none)
@@ -86,70 +212,28 @@ async def process_single_file(
         logger.warning("Empty MD file, will be null in output: %s", md_path)
         return (True, None, None)
 
-    # Load and format prompt
+    active_distiller = distiller or AIDistiller(
+        reference_date=reference_date,
+        model_name=model_name,
+        temperature=temperature,
+    )
+
     try:
-        prompt_template = _load_prompt_template()
-        formatted_prompt = prompt_template.replace("{{DOCUMENT_TEXT}}", content).replace(
-            "{{REFERENCE_DATE}}", reference_date
+        parsed = await active_distiller.extract_dividend_data_with_retry(content, md_path)
+        result_dict = parsed.model_dump(by_alias=True)
+
+        logger.info(
+            "Successfully distilled %s: has_dividends=%s, payouts=%d",
+            md_path.name,
+            result_dict.get("has_dividends"),
+            len(result_dict.get("share_payouts", [])),
         )
+
+        return (True, result_dict, None)
     except Exception as e:
-        error_msg = f"Failed to load/format prompt for {md_path}: {type(e).__name__}: {e}"
+        error_msg = f"AI processing failed for {md_path}: {type(e).__name__}: {e}"
         logger.error(error_msg)
         return (False, None, error_msg)
-
-    # Process with Mistral Large using structured output (chat.parse)
-    from mistralai.client import Mistral as MistralClient
-
-    client = MistralClient(api_key=os.environ.get("MISTRAL_API_KEY"))
-
-    last_error: Exception | None = None
-    for attempt in range(AI_MAX_RETRIES):
-        try:
-            response = client.chat.parse(
-                model=model_name,
-                messages=[{"role": "user", "content": formatted_prompt}],
-                temperature=temperature,
-                response_format=DividendData,
-            )
-
-            parsed = response.choices[0].message.parsed
-            if parsed is None:
-                raise ValueError("Mistral returned no parsed content")
-
-            result_dict = json.loads(parsed.model_dump_json())
-
-            logger.info(
-                "Successfully distilled %s: has_dividends=%s, payouts=%d",
-                md_path.name,
-                result_dict.get("has_dividends"),
-                len(result_dict.get("share_payouts", [])),
-            )
-
-            return (True, result_dict, None)
-
-        except Exception as e:
-            last_error = e
-            error_str = str(e)
-            is_retryable = any(s in error_str for s in ("503", "502", "429", "reset reason", "timeout", "overload"))
-
-            if is_retryable and attempt < AI_MAX_RETRIES - 1:
-                wait = AI_RETRY_BACKOFF_BASE ** (attempt + 1)
-                logger.warning(
-                    "Retryable error on attempt %d/%d for %s, waiting %ds: %s",
-                    attempt + 1,
-                    AI_MAX_RETRIES,
-                    md_path.name,
-                    wait,
-                    e,
-                )
-                await asyncio.sleep(wait)
-                continue
-
-            error_msg = f"AI processing failed for {md_path}: {type(e).__name__}: {e}"
-            logger.error(error_msg)
-            return (False, None, error_msg)
-
-    return (False, None, f"AI processing failed for {md_path}: {type(last_error).__name__}: {last_error}")
 
 
 async def process_company_files(
@@ -159,6 +243,7 @@ async def process_company_files(
     model_name: str = AI_MODEL,
     temperature: float = AI_TEMPERATURE,
     max_concurrent: int = MAX_CONCURRENT_AI_REQUESTS,
+    distiller: AIDistiller | None = None,
 ) -> tuple[int, int, dict[str, dict[str, Any]], list[str]]:
     """Process all MD files for a single company with controlled concurrency.
 
@@ -169,6 +254,7 @@ async def process_company_files(
         model_name: Model identifier to use
         temperature: Model temperature
         max_concurrent: Maximum concurrent AI requests per company
+        distiller: Optional shared distiller instance for client reuse.
 
     Returns:
         Tuple of (success_count, failure_count, results_dict, failed_files)
@@ -186,6 +272,7 @@ async def process_company_files(
                 reference_date,
                 model_name=model_name,
                 temperature=temperature,
+                distiller=distiller,
             )
 
     tasks = [asyncio.create_task(_process_with_semaphore(md_path)) for md_path in md_files]
@@ -237,6 +324,17 @@ async def run_ai_distillation(
     total_success = 0
     total_failed = 0
     all_failed_files: list[str] = []
+    distiller: AIDistiller | None = None
+    distiller_lock = asyncio.Lock()
+
+    async def _get_distiller() -> AIDistiller:
+        nonlocal distiller
+        if distiller is not None:
+            return distiller
+        async with distiller_lock:
+            if distiller is None:
+                distiller = AIDistiller(reference_date=reference_date)
+            return distiller
 
     # Per user decision: parallel company processing
     company_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AI_REQUESTS)
@@ -258,6 +356,8 @@ async def run_ai_distillation(
                 logger.debug("No MD files found for %s", company_name)
                 return (folder_name, company_name, 0, 0, {}, [])
 
+            company_distiller = await _get_distiller()
+
             return (
                 folder_name,
                 company_name,
@@ -265,6 +365,7 @@ async def run_ai_distillation(
                     company_name,
                     md_files,
                     reference_date,
+                    distiller=company_distiller,
                 ),
             )
 
