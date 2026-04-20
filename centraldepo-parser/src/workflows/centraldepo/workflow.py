@@ -659,7 +659,7 @@ class CentralDepoWorkflow:
 
         # NEW: AI Data Distillation Step
         # Process all MD files with Mistral Large to extract structured dividend data
-        reference_date = datetime.now().strftime("%Y-%m-%d")
+        reference_date = workflows.workflow.now().strftime("%Y-%m-%d")
         distillation_data, distillation_stats = await run_ai_data_distillation(
             results,
             saved_path,
