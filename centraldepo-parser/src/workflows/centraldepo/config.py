@@ -53,4 +53,4 @@ AI_MODEL = "mistral-large-latest"  # Model identifier for AI distillation
 AI_TIMEOUT = 60  # Seconds timeout for individual AI requests
 AI_TEMPERATURE = 0.0  # Deterministic output for consistent results
 AI_MAX_RETRIES = 3  # Retries for transient Mistral API errors (5xx)
-AI_RETRY_BACKOFF_BASE = 2  # Exponential backoff base in seconds
+AI_RETRY_BACKOFF_BASE = 3  # Exponential backoff base in seconds
