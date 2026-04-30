@@ -292,7 +292,7 @@ async def convert_company_files(
     semaphore: asyncio.Semaphore,
     overwrite: bool = True,
 ) -> tuple[str, int, int, list[str], list[tuple[Path, Path]]]:
-    """Convert all eligible non-PDF files in a company folder.
+    """Convert all eligible non-PDF/non-MD files in a company folder.
 
     Args:
         company_name: Company name for logging
@@ -308,14 +308,14 @@ async def convert_company_files(
         logger.warning("Company folder does not exist: %s", folder_path)
         return (company_name, 0, 0, [], [])
 
-    # Find non-PDF files only
-    files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() != ".pdf"]
+    # Find non-PDF and non-MD files only (MD files are already converted)
+    files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() not in (".pdf", ".md")]
 
     if not files:
-        logger.debug("No non-PDF files found for %s", company_name)
+        logger.debug("No non-PDF/non-MD files found for %s", company_name)
         return (company_name, 0, 0, [], [])
 
-    logger.info("Found %d non-PDF files to convert for %s", len(files), company_name)
+    logger.info("Found %d non-PDF/non-MD files to convert for %s", len(files), company_name)
 
     tasks = []
     for file_path in files:
@@ -342,7 +342,7 @@ async def convert_company_files(
             failed_files.append(str(file_path))
 
     logger.info(
-        "Converted %d/%d non-PDF files for %s (%d failed)",
+        "Converted %d/%d non-PDF/non-MD files for %s (%d failed)",
         success,
         len(files),
         company_name,
