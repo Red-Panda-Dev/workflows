@@ -6,35 +6,33 @@ Pipeline internals for the CentralDepo Dividend Parser workflow. This document c
 
 The workflow (`workflow.py`) executes these stages sequentially via Mistral activities:
 
-```
-1. get_credentials          → reads CF_ACCOUNT_ID, CF_API_TOKEN from env
-2. scrape_pages_batch       → batches of pages via Cloudflare Browser Rendering
-3. transform_to_output      → groups DividendRecords → CompanyResults
-4. save_results             → writes centraldepo_dividends.json atomically
-5. download_all_results     → downloads archives to MD5-named company folders
-6. extract_all_archives     → extracts ZIP/TAR/GZ, removes archives
-7. convert_all_files        → docx/doc/xls locally, PDF via Mistral OCR (base64 data URI)
-8. run_ai_data_distillation → Mistral Large structured extraction per MD file
-9. save_distillation_results → writes ai_distilled.json atomically
-10. generate_final_json     → writes final_mapping.json atomically
-```
+1. `get_credentials` → reads `CF_ACCOUNT_ID`, `CF_API_TOKEN` from env
+2. `scrape_pages_batch` → batches of pages via Cloudflare Browser Rendering
+3. `transform_to_output` → groups `DividendRecord` objects → `CompanyResult` objects
+4. `save_results` → writes `centraldepo_dividends.json` atomically
+5. `download_all_results_files` → downloads archives to MD5-named company folders
+6. `extract_all_downloaded_archives` → extracts ZIP/TAR/GZ, removes archives
+7. `convert_all_downloaded_files` → docx/doc/xls locally, PDF via Mistral OCR (base64 data URI)
+8. `run_ai_data_distillation` → Mistral Large structured extraction per MD file
+9. `save_distillation_results` → writes `ai_distilled.json` atomically
+10. `generate_final_json` → writes `final_mapping.json` atomically
 
 Early termination: batch scraping stops on empty page (end of pagination) or 3+ consecutive failures.
 
 ## Module map
 
-| File | Lines | Role | Key exports |
-|------|-------|------|-------------|
-| `config.py` | 56 | All constants and tuning knobs | `BASE_URL`, `SELECTOR`, `BATCH_SIZE`, `MAX_CONCURRENT_SCRAPES`, `AI_MODEL`, `AI_MAX_RETRIES` |
-| `models.py` | 245 | Pydantic data shapes for entire pipeline | `DividendRecord`, `ScrapeResult`, `CompanyResult`, `WorkflowInput`, `WorkflowOutput`, `DividendData`, `SharePayout`, `CompanyDividendResult` |
-| `parser.py` | 93 | HTML → structured records | `parse_items()`, `transform_to_output()` |
-| `client.py` | 569 | Cloudflare Browser Rendering HTTP client | `CloudflareClient`, `CloudflareSessionManager`, `CircuitBreaker`, `RateLimiter` |
-| `downloader.py` | 264 | Concurrent file download | `download_all_files()`, `get_company_folder_name()`, `get_filename_from_url()` |
-| `extractor.py` | 261 | Archive extraction | `extract_all_archives()`, `is_archive()` |
-| `converter.py` | 472 | Document → Markdown conversion | `convert_all_files()`, `process_pdf_files()`, `convert_to_markdown()` |
-| `ai_distiller.py` | 417 | AI structured data extraction | `run_ai_distillation()`, `AIDistiller`, `process_single_file()` |
-| `prompts/dividends_parsing.md` | 458 | Mistral Large prompt template | Template with `{{REFERENCE_DATE}}` and `{{DOCUMENT_TEXT}}` placeholders |
-| `workflow.py` | 708 | Orchestration: workflow class + 10 activities | `CentralDepoWorkflow`, all `@workflows.activity()` functions |
+| File | Role | Key exports |
+|------|------|-------------|
+| `config.py` | All constants and tuning knobs | `BASE_URL`, `SELECTOR`, `BATCH_SIZE`, `MAX_CONCURRENT_*`, `AI_MODEL`, retry/timeout defaults |
+| `models.py` | Pydantic data shapes for entire pipeline | `DividendRecord`, `ScrapeResult`, `CompanyResult`, `WorkflowInput`, `WorkflowOutput`, `DividendData`, `SharePayout` |
+| `parser.py` | HTML → structured records | `parse_items()`, `transform_to_output()` |
+| `client.py` | Cloudflare Browser Rendering HTTP client | `CloudflareClient`, `CloudflareSessionManager`, `CircuitBreaker`, `RateLimiter` |
+| `downloader.py` | Concurrent file download | `download_all_files()`, `get_company_folder_name()`, `get_filename_from_url()` |
+| `extractor.py` | Archive extraction | `extract_all_archives()`, `is_archive()` |
+| `converter.py` | Document → Markdown conversion | `convert_all_files()`, `process_pdf_files()`, `convert_to_markdown()` |
+| `ai_distiller.py` | AI structured data extraction | `run_ai_distillation()`, `AIDistiller`, `process_single_file()` |
+| `prompts/dividends_parsing.md` | Mistral Large prompt template | Template with `{{REFERENCE_DATE}}` and `{{DOCUMENT_TEXT}}` placeholders |
+| `workflow.py` | Orchestration: workflow class + 10 activities | `CentralDepoWorkflow`, all `@workflows.activity()` functions |
 
 ## Data contracts between stages
 
@@ -87,7 +85,6 @@ All functions decorated with `@workflows.activity()` in `workflow.py`:
 |----------|-------|---------------|----------------|
 | `get_credentials` | 110-131 | `CF_ACCOUNT_ID`, `CF_API_TOKEN` | None |
 | `scrape_pages_batch` | 59-107 | None | Cloudflare Browser Rendering API |
-| `scrape_single_page` | 26-56 | None | Cloudflare Browser Rendering API (legacy, use batch) |
 | `save_results` | 134-178 | None | Filesystem |
 | `download_all_results_files` | 181-221 | None | HTTP (centraldepo.by), Filesystem |
 | `extract_all_downloaded_archives` | 224-265 | None | Filesystem |
@@ -101,7 +98,6 @@ All functions decorated with `@workflows.activity()` in `workflow.py`:
 ```
 workflow.py → client.py, parser.py, config.py, models.py, downloader.py, extractor.py, converter.py, ai_distiller.py
 client.py   → config.py, models.py, parser.py
-parser.py   → config.py, models.py
 downloader.py → (standalone, imports only stdlib + aiohttp)
 extractor.py → downloader.py (get_company_folder_name)
 converter.py → config.py, downloader.py (get_company_folder_name), mistralai plugins
@@ -151,7 +147,7 @@ No circular imports exist. `config.py` and `models.py` are leaf modules with no 
 - `AIDistiller`: reusable instance with shared Mistral client and pre-rendered system prompt. Initialize once per activity execution.
 - `process_single_file()`: processes one MD file through Mistral Large `chat.parse_async` with `DividendData` Pydantic model for structured output validation.
 - Empty MD files: returned as `None` (not errors).
-- Sequential processing: companies and files within companies are processed one at a time with 1-second delay between companies to avoid rate limits.
+- Sequential processing: companies and files within companies are processed one at a time with delays to avoid rate limits.
 - Retry: `AI_MAX_RETRIES` attempts with exponential backoff for retryable errors (503, 502, 429, timeout, overload).
 
 ### prompts/dividends_parsing.md

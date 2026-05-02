@@ -15,11 +15,21 @@ Python workspace containing a Mistral Workflows project that scrapes dividend di
 centraldepo-parser/            # Main project — all application code lives here
 ├── src/
 │   ├── discover.py            # Auto-discovers workflow classes, starts worker
-│   ├── dev_worker.py          # File watcher with auto-reload for dev
 │   └── workflows/
+│       ├── __init__.py        # Package marker for auto-discovery
 │       ├── start.py           # CLI to trigger a workflow execution
-│       └── centraldepo/       # CentralDepo workflow implementation (scrape→download→extract→convert→JSON)
-├── example.py                 # Standalone scraper (non-workflow version)
+│       └── centraldepo/       # CentralDepo workflow implementation
+│           ├── config.py      # Constants and tuning knobs
+│           ├── models.py      # Pydantic data models
+│           ├── parser.py      # HTML parsing logic
+│           ├── client.py      # Cloudflare Browser Rendering HTTP client
+│           ├── downloader.py  # Concurrent file download
+│           ├── extractor.py   # Archive extraction
+│           ├── converter.py   # Document-to-Markdown conversion
+│           ├── ai_distiller.py # AI structured data extraction
+│           ├── prompts/       # AI prompt templates
+│           │   └── dividends_parsing.md
+│           └── workflow.py    # Mistral workflow + activities
 ├── pyproject.toml             # Project dependencies and dev tools config
 ├── Makefile                   # Run/execute/lint targets
 └── .agents/                   # Mistral SDK skill references (read-only)
@@ -40,7 +50,7 @@ Root-level `pyproject.toml` and `Makefile` provide workspace-wide ruff config an
 - Run `make lint` from the repo root before committing. This runs `ruff format --check` and `ruff check` against `centraldepo-parser/`.
 - Run `make refactor` to auto-fix lint issues.
 - From inside `centraldepo-parser/`, use `uv run ruff format .` and `uv run ruff check --fix .`.
-- Ruff config: line-length 120, rules `F E W I`, ignores `E501 E712 F821`. See root `pyproject.toml` for full config.
+- Ruff config: line-length 120, rules `F E W I D B UP C4 SIM PIE T20`, ignores `E501 E712`. See root `pyproject.toml` for full config.
 - No test files exist yet. `pytest` is listed as a dev dependency in `centraldepo-parser/pyproject.toml`.
 - Do not modify files under `centraldepo-parser/.agents/` — those are Mistral SDK references.
 
@@ -68,18 +78,19 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 - `ARCHITECTURE.md` — full code map, logical layers, data flow, architectural invariants
 - `centraldepo-parser/README.md` — setup, commands, development workflow
 - `centraldepo-parser/AGENTS.md` — project-local module map, change rules, boundaries
+- `centraldepo-parser/src/workflows/centraldepo/AGENTS.md` — pipeline internals, data contracts, activity boundaries
 - `centraldepo-parser/.agents/skills/workflows/SKILL.md` — Mistral Workflows SDK reference
+- `.skills/python_docs_and_comments.md` — Python comment and docstring policy
 
 ## Repository-specific gotchas
 
 - **Two separate `uv` environments.** The root `pyproject.toml` has its own `.venv` (for ruff). `centraldepo-parser/` has its own `.venv` with runtime deps. Use the correct venv: root for linting, centraldepo-parser for running.
 - **Env vars required in `.env`.** The worker, PDF OCR, and AI distillation need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. All `.env` files are gitignored.
-- **Root project name is a typo:** `worflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
-- **`example.py` duplicates logic.** The standalone scraper in `example.py` mirrors the workflow in `src/workflows/centraldepo/`. Changes to parsing/scraping logic should be applied to both places if they need to stay in sync.
+- **Root project name is a typo:** `workflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
+- **`example.py` reference in docs.** Some documentation references `example.py` (standalone scraper) but this file does not currently exist on disk. The workflow in `src/workflows/centraldepo/` is the authoritative implementation.
 
 ## Python comments and docstrings
 
-When editing Python files, follow the policy in
-`.skills/python_docs_and_comments.md`.
+When editing Python files, follow the policy in `.skills/python_docs_and_comments.md`.
 
 This is mandatory for public APIs, aiohttp handlers, and non-trivial async workflows.

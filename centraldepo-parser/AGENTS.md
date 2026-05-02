@@ -9,7 +9,6 @@ The CentralDepo Dividend Parser — a Mistral Workflow that scrapes paginated di
 ```text
 src/
 ├── discover.py                # Scans workflows/ for workflow classes, starts Mistral worker
-├── dev_worker.py              # watchdog-based auto-reload wrapper around discover.py
 └── workflows/
     ├── __init__.py            # Empty package marker (auto-discovery entry point)
     ├── start.py               # CLI to trigger workflow execution via Mistral client
@@ -25,7 +24,6 @@ src/
         ├── prompts/           # Prompt templates for AI distillation
         │   └── dividends_parsing.md  # Main extraction prompt (BYN currency rules, schema definition)
         └── workflow.py        # Mistral workflow + activities (orchestration entry point)
-example.py                     # Standalone async scraper (non-workflow version of same logic)
 output/                        # JSON output + downloaded/extracted/converted files (gitignored)
 ```
 
@@ -36,18 +34,18 @@ output/                        # JSON output + downloaded/extracted/converted fi
 - **Atomic writes:** `workflow.py` (`save_results`), `downloader.py`, and `extractor.py` all use temp-file-then-rename for atomic output. Keep this pattern if adding new output paths.
 - **Pagination convention:** Page 1 uses the base URL with no query params. Page 2+ appends `?PAGEN_1=<n>`. Hardcoded in `config.py:BASE_URL` and `_build_page_url()`.
 - **CSS selector:** `.news-item` finds dividend entries. If the target site changes markup, update `config.py:SELECTOR` and the Cloudflare API payload in `client.py`.
-- **Concurrency limits:** `downloader.py` and `extractor.py` each have their own concurrency limit (`MAX_CONCURRENT_DOWNLOADS`, `MAX_CONCURRENT_EXTRACTS`) defined in `config.py`. Conversion concurrency is `MAX_CONCURRENT_CONVERSIONS` in `config.py`.
+- **Concurrency limits:** `downloader.py`, `extractor.py`, and `converter.py` each have their own concurrency limit (`MAX_CONCURRENT_DOWNLOADS`, `MAX_CONCURRENT_EXTRACTS`, `MAX_CONCURRENT_CONVERSIONS`) defined in `config.py`.
 - **Conversion split:** Non-PDF files (docx, doc, xls) are converted locally via `python-docx`, `docx2txt`, `xlrd`. PDF files are read as base64 data URIs and passed directly to Mistral OCR (`mistralai_ocr`) which requires `MISTRAL_API_KEY`. No intermediate storage or R2 upload is used.
 - **AI distillation:** After conversion, all MD files are processed through `ai_distiller.py` which uses Mistral Large structured parsing (`chat.parse_async` with `DividendData` Pydantic model) to extract dividend data. The prompt template at `prompts/dividends_parsing.md` defines extraction rules. Companies are processed sequentially to avoid rate limits.
 
 ## Safe change rules
 
 - **Adding a new workflow:** Create a new package under `src/workflows/<name>/` with a class decorated with `@workflows.workflow.define(...)`. It will be auto-discovered by `discover.py`.
-- **Modifying parsing logic:** Edit `parser.py`. If you also need the standalone scraper to reflect the change, update `example.py` as well.
+- **Modifying parsing logic:** Edit `parser.py`.
 - **Changing API interaction:** Edit `client.py`. Do not change retry/timeout constants directly — use `config.py`.
 - **Changing download behavior:** Edit `downloader.py`. Concurrency and retry tuning lives in `config.py`.
 - **Changing extraction behavior:** Edit `extractor.py`. Supports ZIP, TAR, GZ, TGZ, TAR.GZ. New archive types should be added to the detection logic here.
-- **Changing conversion behavior:** Edit `converter.py`. Non-PDF types are handled in `convert_to_markdown()`. PDF OCR uses `mistralai_ocr` from the Mistral plugin — PDFs are read as base64 data URIs and passed directly to the OCR API. New file types should be added to the extension dispatch in `convert_to_markdown()`.
+- **Changing conversion behavior:** Edit `converter.py`. Non-PDF types are handled in `convert_to_markdown()`. PDF OCR uses `mistralai_ocr` from the Mistral plugin. New file types should be added to the extension dispatch in `convert_to_markdown()`.
 - **Changing output schema:** Edit `models.py` first, then update `workflow.py` (serializes `WorkflowOutput`), `parser.py` (produces `CompanyResult`), and any downstream consumers.
 - **Do not edit `.agents/`** — those are read-only Mistral SDK reference materials.
 
