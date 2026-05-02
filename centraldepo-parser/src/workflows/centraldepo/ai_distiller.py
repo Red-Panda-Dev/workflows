@@ -23,6 +23,7 @@ from .config import (
     AI_MODEL,
     AI_RETRY_BACKOFF_BASE,
     AI_TEMPERATURE,
+    AI_TIMEOUT,
 )
 from .models import DividendData
 
@@ -74,7 +75,7 @@ class AIDistiller:
         self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
         self.model_name = model_name
         self.temperature = temperature
-        self.client = MistralClient(api_key=api_key)
+        self.client = MistralClient(api_key=api_key, timeout=AI_TIMEOUT)
 
     async def _extract_dividend_data(self, ocr_text: str) -> DividendData:
         """Extract and validate dividend data from one OCR markdown payload.
@@ -134,9 +135,11 @@ class AIDistiller:
         for attempt in range(AI_MAX_RETRIES):
             try:
                 return await self._extract_dividend_data(ocr_text)
-            except Exception as e:
-                error_str = str(e).lower()
-                is_retryable = any(s in error_str for s in ("503", "502", "429", "reset reason", "timeout", "overload"))
+            except (Exception, asyncio.CancelledError) as e:
+                error_str = str(e).lower() if isinstance(e, Exception) else "cancellederror"
+                is_retryable = any(
+                    s in error_str for s in ("503", "502", "429", "reset reason", "timeout", "overload", "cancelled")
+                )
 
                 if is_retryable and attempt < AI_MAX_RETRIES - 1:
                     wait = AI_RETRY_BACKOFF_BASE ** (attempt + 1)
@@ -231,7 +234,7 @@ async def process_single_file(
         )
 
         return (True, result_dict, None)
-    except Exception as e:
+    except (Exception, asyncio.CancelledError) as e:
         error_msg = f"AI processing failed for {md_path}: {type(e).__name__}: {e}"
         logger.error(error_msg)
         return (False, None, error_msg)
