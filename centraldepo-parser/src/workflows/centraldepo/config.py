@@ -54,3 +54,7 @@ AI_TIMEOUT = 60  # Seconds timeout for individual AI requests
 AI_TEMPERATURE = 0.0  # Deterministic output for consistent results
 AI_MAX_RETRIES = 3  # Retries for transient Mistral API errors (5xx)
 AI_RETRY_BACKOFF_BASE = 3  # Exponential backoff base in seconds
+
+# AI Rate Limiting
+AI_FILE_DELAY = 1.0  # Seconds delay between individual file AI calls within a company
+AI_COMPANY_DELAY = 1.0  # Seconds delay between processing different companies

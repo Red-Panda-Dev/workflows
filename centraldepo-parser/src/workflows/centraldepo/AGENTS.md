@@ -147,7 +147,7 @@ No circular imports exist. `config.py` and `models.py` are leaf modules with no 
 - `AIDistiller`: reusable instance with shared Mistral client and pre-rendered system prompt. Initialize once per activity execution.
 - `process_single_file()`: processes one MD file through Mistral Large `chat.parse_async` with `DividendData` Pydantic model for structured output validation.
 - Empty MD files: returned as `None` (not errors).
-- Sequential processing: companies and files within companies are processed one at a time with delays to avoid rate limits.
+- Sequential processing: companies and files within companies are processed one at a time with configurable delays (`AI_FILE_DELAY`, `AI_COMPANY_DELAY`) to avoid rate limits.
 - Retry: `AI_MAX_RETRIES` attempts with exponential backoff for retryable errors (503, 502, 429, timeout, overload).
 
 ### prompts/dividends_parsing.md

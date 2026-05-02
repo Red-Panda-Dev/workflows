@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import (
+    AI_COMPANY_DELAY,
+    AI_FILE_DELAY,
     AI_MAX_RETRIES,
     AI_MODEL,
     AI_RETRY_BACKOFF_BASE,
@@ -270,6 +272,8 @@ async def process_company_files(
             distiller=distiller,
         )
         results.append(result)
+        # Rate limiting: delay between individual file processing within a company
+        await asyncio.sleep(AI_FILE_DELAY)
 
     success_count = sum(1 for suc, _, _ in results if suc)
     failure_count = len(results) - success_count
@@ -362,7 +366,8 @@ async def run_ai_distillation(
     for cn, urls in results:
         result = await _process_company(cn, urls)
         company_results.append(result)
-        await asyncio.sleep(1)
+        # Rate limiting: delay between companies
+        await asyncio.sleep(AI_COMPANY_DELAY)
 
     # Aggregate results
     for folder_name, company_name, success, failure, results_dict, failed in company_results:
