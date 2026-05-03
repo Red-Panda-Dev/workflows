@@ -4,6 +4,8 @@
 
 A [Mistral Workflows](https://docs.mistral.ai/workflows/getting-started/introduction) project that scrapes paginated dividend disclosure records from [centraldepo.by](https://www.centraldepo.by/uslugi/raskrytie-informatsii/reestr/dividends/), groups entries by company, downloads archive files, extracts their contents, and saves structured results to JSON.
 
+**Uses direct HTTP scraping with aiohttp and BeautifulSoup parsing** — no external service dependencies required.
+
 ## Business Overview
 
 ### Problem Solved
@@ -39,53 +41,51 @@ The workflow produces:
 
 ```mermaid
 graph TD
-    A[Start: CentralDepoWorkflow.run()] --> B[get_credentials]
-    B --> C[Build Page URLs]
-    C --> D[Loop Pages 1..N]
-    D --> E[scrape_single_page]
-    E -->|Success| F[Parse HTML Items]
-    E -->|Failure| G[Retry up to 3x]
-    G -->|All fail| D
-    F --> H[Collect DividendRecords]
-    H --> D
-    D -->|Empty page| I[End pagination]
-    I --> J[transform_to_output]
-    J --> K[Group by Company]
-    K --> L[Deduplicate URLs]
-    L --> M[Sort Alphabetically]
-    M --> N[save_results]
-    N --> O[JSON output file]
-    O --> P[download_all_results_files]
-    P --> Q[Concurrent downloads per company]
-    Q --> R[Atomic file writes]
-    R --> S[download_stats]
-    S --> T[extract_all_downloaded_archives]
-    T --> U[Detect archive types]
-    U --> V[Parallel extraction]
-    V --> W[Atomic extraction: temp dir --> final]
-    W --> X[extraction_stats]
-    X --> Y[Return WorkflowOutput]
-    Y --> Z[End]
+    A[Start: CentralDepoWorkflow.run()] --> B[Build Page URLs]
+    B --> C[Loop Pages 1..N]
+    C --> D[scrape_pages_batch]
+    D -->|Success| E[Parse HTML Items]
+    D -->|Failure| F[Retry up to 3x]
+    F -->|All fail| C
+    E --> G[Collect DividendRecords]
+    G --> C
+    C -->|Empty page| H[End pagination]
+    H --> I[transform_to_output]
+    I --> J[Group by Company]
+    J --> K[Deduplicate URLs]
+    K --> L[Sort Alphabetically]
+    L --> M[save_results]
+    M --> N[JSON output file]
+    N --> O[download_all_results_files]
+    O --> P[Concurrent downloads per company]
+    P --> Q[Atomic file writes]
+    Q --> R[download_stats]
+    R --> S[extract_all_downloaded_archives]
+    S --> T[Detect archive types]
+    T --> U[Parallel extraction]
+    U --> V[Atomic extraction: temp dir --> final]
+    V --> W[extraction_stats]
+    W --> X[Return WorkflowOutput]
+    X --> Y[End]
 
     style A fill:#007acc,stroke:#005288,color:#fff
-    style B fill:#4caf50,stroke:#388e3c,color:#fff
-    style E fill:#4caf50,stroke:#388e3c,color:#fff
-    style N fill:#4caf50,stroke:#388e3c,color:#fff
-    style P fill:#4caf50,stroke:#388e3c,color:#fff
-    style T fill:#4caf50,stroke:#388e3c,color:#fff
-    style O fill:#ff9800,stroke:#e68a00,color:#000
-    style S fill:#ff9800,stroke:#e68a00,color:#000
-    style X fill:#ff9800,stroke:#e68a00,color:#000
+    style D fill:#4caf50,stroke:#388e3c,color:#fff
+    style M fill:#4caf50,stroke:#388e3c,color:#fff
+    style O fill:#4caf50,stroke:#388e3c,color:#fff
+    style S fill:#4caf50,stroke:#388e3c,color:#fff
+    style N fill:#ff9800,stroke:#e68a00,color:#000
+    style R fill:#ff9800,stroke:#e68a00,color:#000
+    style W fill:#ff9800,stroke:#e68a00,color:#000
+    style X fill:#007acc,stroke:#005288,color:#fff
     style Y fill:#007acc,stroke:#005288,color:#fff
-    style Z fill:#007acc,stroke:#005288,color:#fff
 ```
 
 ### Activity Breakdown
 
 | Activity | Purpose | Input | Output |
 |----------|---------|-------|--------|
-| `get_credentials()` | Read CF_ACCOUNT_ID and CF_API_TOKEN from environment | None | Tuple[account_id, api_token] |
-| `scrape_single_page()` | Scrape one page via Cloudflare Browser Rendering API | page, url, account_id, api_token, timeout | List[DividendRecord] or None |
+| `scrape_pages_batch()` | Scrape pages in parallel via aiohttp | page_urls, timeout | List[ScrapeResult] |
+| `scrape_single_page()` | Scrape one page (backward compatibility) | page, url, timeout | List[DividendRecord] or None |
 | `save_results()` | Atomically write JSON output with results and stats | WorkflowOutput, output_path | Absolute file path |
 | `download_all_results_files()` | Download all archives concurrently per company | List[CompanyResult], output_path | Dict download statistics |
 | `extract_all_downloaded_archives()` | Extract all downloaded archives | List[CompanyResult], output_path | Dict extraction statistics |
@@ -101,14 +101,13 @@ centraldepo-parser/
 │       ├── __init__.py          # Package marker for discovery
 │       ├── start.py             # CLI to trigger workflows
 │       └── centraldepo/         # Core workflow package
-│           ├── config.py        # Constants: BASE_URL, SCRAPE_API, SELECTOR
+│           ├── config.py        # Constants: BASE_URL, SELECTOR, retry settings
 │           ├── models.py        # Pydantic models for data structures
-│           ├── client.py        # Cloudflare Browser Rendering client
+│           ├── client.py        # HTTP client: AiohttpClient with aiohttp and BeautifulSoup
 │           ├── parser.py        # HTML parsing & output transformation
 │           ├── downloader.py    # Concurrent file download logic
 │           ├── extractor.py     # Archive extraction handling
 │           └── workflow.py      # Main workflow class & activities
-├── example.py                  # Standalone async scraper (non-workflow)
 ├── output/                     # Generated output (gitignored)
 ├── Makefile                    # Run targets
 ├── pyproject.toml              # Dependencies & tool config
@@ -123,7 +122,8 @@ centraldepo-parser/
     "max_pages": int,        # 1-100, pages to scrape (default: 10)
     "delay": float,          # 0.0-10.0, seconds between pages (default: 1.0)
     "timeout": int,          # 10-600, request timeout seconds (default: 180)
-    "output_path": str       # JSON output path (default: "output/centraldepo_dividends.json")
+    "output_path": str,      # JSON output path (default: "output/centraldepo_dividends.json")
+
 }
 ```
 
@@ -167,8 +167,8 @@ centraldepo-parser/
 ### Prerequisites
 - Python 3.14.3+
 - [uv](https://github.com/astral-sh/uv) package manager
-- Cloudflare account with Browser Rendering API access
-- Environment variables configured (see below)
+- Mistral Workflows API key (for worker registration)
+
 
 ### Install Dependencies
 ```bash
@@ -179,15 +179,10 @@ uv sync
 ### Environment Configuration
 Create a `.env` file in the project root:
 ```bash
-# Cloudflare Browser Rendering API credentials
-CF_ACCOUNT_ID=your_account_id_here
-CF_API_TOKEN=your_api_token_here
-
-# Mistral Workflows API (for worker registration)
+# Required for Mistral Workflows
 MISTRAL_API_KEY=your_mistral_api_key_here
-```
 
-**Note:** The Cloudflare API token requires **Browser Rendering - Edit** permissions.
+```
 
 ## Commands
 
@@ -202,10 +197,10 @@ make start-worker
 In a separate terminal, trigger a workflow execution by name:
 
 ```bash
-# Basic execution with defaults (10 pages)
+# Basic execution with defaults (10 pages, aiohttp mode)
 make execute workflow=centraldepo-parser
 
-# Custom configuration
+# Custom configuration with aiohttp mode (default)
 make execute workflow=centraldepo-parser input='{"max_pages": 50, "delay": 2.0, "timeout": 300}'
 
 # Full custom output path
@@ -230,18 +225,18 @@ uv run python example.py --max-pages 10 --delay 1.0
 
 ## Usage Examples
 
-### Example 1: Quick Test Run
+### Example 1: Quick Test Run (aiohttp mode - default)
 ```bash
 make execute workflow=centraldepo-parser input='{"max_pages": 2, "timeout": 60}'
 ```
-Scrapes first 2 pages with a 60-second timeout — good for testing configuration.
+Scrapes first 2 pages with a 60-second timeout using direct HTTP — good for testing configuration.
 
 ### Example 2: Full Collection
 ```bash
 make execute workflow=centraldepo-parser \
   input='{"max_pages": 500, "delay": 2.0, "timeout": 300, "output_path": "output/full_dividends.json"}'
 ```
-Comprehensive scrape with generous timeouts and delays.
+Comprehensive scrape with generous timeouts and delays using direct HTTP.
 
 ### Example 3: Incremental Update
 ```bash
@@ -264,11 +259,17 @@ make execute workflow=centraldepo-parser input='{"max_pages": 200, "delay": 2.0}
 
 ## Error Handling
 
+The workflow implements robust error handling:
+
 ### Scraping Errors
 - **Rate limiting (429)**: Respects Retry-After header, waits and retries
 - **Server errors (5xx)**: Exponential backoff, up to 3 retries
 - **Empty pages**: Stops pagination (assumes end of results)
 - **3 consecutive failures**: Stops early to avoid wasting resources
+- **Network errors**: Automatic retry with exponential backoff
+
+### Error Handling
+- HTTP errors (4xx/5xx from centraldepo.by) are handled gracefully
 
 ### Download Errors
 - Failed URLs are tracked in `download_stats.failed_urls`
@@ -309,7 +310,9 @@ The MD5-based folder names ensure:
 - `mistralai-workflows>=3.0.0,<4` — Mistral Workflows SDK
 - `pydantic` — Data validation and serialization
 - `python-dotenv` — Environment variable loading
-- `aiohttp>=3.8` — Async HTTP requests
+- `aiohttp>=3.8` — Async HTTP requests (both modes)
+- `beautifulsoup4>=4.14.3` — HTML parsing (aiohttp mode)
+- `lxml>=6.1.0` — Fast HTML/XML parser backend (aiohttp mode)
 
 ### Development
 - `ruff>=0.11` — Linting and formatting
@@ -337,21 +340,16 @@ Without `antiword` or `catdoc`, binary `.doc` files still fall back to best-effo
 
 ### Common Issues
 
-**"CF_ACCOUNT_ID and CF_API_TOKEN environment variables required"**
-- Ensure both variables are set in your `.env` file
-- Verify the worker is started from the project root directory
-
 **"No .news-item selector block in response"**
 - CentralDepo may have changed their HTML structure
 - Update `SELECTOR` in `config.py`
 
 **"Rate limited" warnings**
 - Increase `delay` parameter between page requests
-- Check Cloudflare rate limits for your account
+- centraldepo.by may be rate limiting your IP
 
 **"HTTP 4xx/5xx" errors**
-- Verify Cloudflare API token has Browser Rendering permissions
-- Check Cloudflare account billing/status
+- Verify the target URL is accessible via browser
 
 **Download failures**
 - Verify URLs in JSON output are accessible via regular browser
