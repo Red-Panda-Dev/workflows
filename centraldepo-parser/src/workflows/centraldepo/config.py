@@ -5,9 +5,6 @@ from pathlib import Path
 # Target website
 BASE_URL = "https://www.centraldepo.by/uslugi/raskrytie-informatsii/reestr/dividends/"
 
-# Cloudflare Browser Rendering API
-SCRAPE_API = "https://api.cloudflare.com/client/v4/accounts/{account_id}/browser-rendering/scrape"
-
 # CSS selector for dividend items
 SELECTOR = ".news-item"
 
@@ -20,7 +17,7 @@ DEFAULT_TIMEOUT = 180
 SCRIPT_DIR = Path(__file__).parent.parent.parent.parent
 DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "centraldepo_dividends.json"
 
-# Cloudflare settings
+# Retry settings
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 2  # seconds, exponential backoff: 2, 4, 8...
 RETRY_BACKOFF_MAX = 30  # maximum backoff time in seconds
@@ -29,8 +26,7 @@ RETRY_BACKOFF_MAX = 30  # maximum backoff time in seconds
 MAX_CONNECTIONS = 10
 CONNECTION_TIMEOUT = 30
 
-# Concurrency limits for Cloudflare API calls
-# Respect Cloudflare rate limits (typically 5-10 concurrent requests allowed)
+# Concurrency limits
 MAX_CONCURRENT_SCRAPES = 5  # Maximum concurrent page scrapes
 BATCH_SIZE = 10  # Number of pages to request in a batch
 SCRAPE_BATCH_DELAY = 0.5  # Delay between batches in seconds

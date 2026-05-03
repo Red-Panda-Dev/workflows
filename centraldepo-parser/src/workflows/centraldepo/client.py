@@ -1,4 +1,7 @@
-"""Cloudflare Browser Rendering API client for CentralDepo workflow."""
+"""HTTP scraping client for CentralDepo workflow.
+
+Uses direct aiohttp-based HTTP scraping with BeautifulSoup parsing.
+"""
 
 import asyncio
 import logging
@@ -6,6 +9,7 @@ import random
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from urllib.parse import urljoin
 
 import aiohttp
 
@@ -20,11 +24,9 @@ from .config import (
     MIN_DELAY,
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
-    SCRAPE_API,
     SELECTOR,
 )
-from .models import ScrapeResult
-from .parser import parse_items
+from .models import DividendRecord, ScrapeResult
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +46,10 @@ def get_random_user_agent() -> str:
 
 
 class CircuitBreaker:
-    """Circuit breaker to prevent cascading failures when Cloudflare API is unavailable.
+    """Circuit breaker to prevent cascading failures when site is unavailable.
 
     Opens after consecutive failures, preventing further requests until reset timeout elapses.
-    This prevents overwhelming a failing API and allows it time to recover.
+    This prevents overwhelming a failing site and allows it time to recover.
     """
 
     def __init__(
@@ -104,7 +106,7 @@ class CircuitBreaker:
 
 
 class RateLimiter:
-    """Adaptive rate limiter based on Cloudflare API responses.
+    """Adaptive rate limiter based on API responses.
 
     Dynamically adjusts delay between requests based on:
     - Explicit Retry-After headers from 429 responses
@@ -138,9 +140,15 @@ class RateLimiter:
         """
         async with self._lock:
             if retry_after is not None:
-                # Respect explicit Retry-After header from Cloudflare
-                self.delay = max(self.min_delay, min(self.max_delay, float(retry_after)))
-                logger.info("Rate limiter: adjusted delay to %s (Retry-After: %s)", self.delay, retry_after)
+                # Respect explicit Retry-After header
+                self.delay = max(
+                    self.min_delay, min(self.max_delay, float(retry_after))
+                )
+                logger.info(
+                    "Rate limiter: adjusted delay to %s (Retry-After: %s)",
+                    self.delay,
+                    retry_after,
+                )
             else:
                 # Exponential backoff
                 self.delay = min(self.max_delay, self.delay * 2)
@@ -156,67 +164,59 @@ class RateLimiter:
             return self.delay
 
 
-class CloudflareSessionManager:
-    """Manages aiohttp ClientSession for Cloudflare API calls with connection pooling.
+class AiohttpSessionManager:
+    """Manages aiohttp ClientSession for direct HTTP scraping.
 
     Provides:
     - Connection pooling and reuse (reduces TCP/SSL handshake overhead)
     - Global rate limiting via semaphore
-    - Circuit breaker for API health
+    - Circuit breaker for site health
     - Adaptive rate limiting
 
     Usage:
-        async with CloudflareSessionManager(account_id, api_token) as mgr:
-            client = CloudflareClient(account_id, api_token, session_manager=mgr)
+        async with AiohttpSessionManager() as mgr:
+            client = AiohttpClient(session_manager=mgr)
             result = await client.scrape_page(1, url, timeout)
     """
 
     def __init__(
         self,
-        account_id: str,
-        api_token: str,
         max_concurrent: int = MAX_CONCURRENT_SCRAPES,
+        timeout: int = CONNECTION_TIMEOUT,
     ):
         """Initialize session manager.
 
         Args:
-            account_id: Cloudflare account ID
-            api_token: Cloudflare API token with Browser Rendering permissions
             max_concurrent: Maximum concurrent requests (connection pool size)
+            timeout: Connection timeout in seconds
         """
-        self.account_id = account_id
-        self.api_token = api_token
         self.max_concurrent = max_concurrent
-        self.api_url = SCRAPE_API.format(account_id=account_id)
-        self.headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json",
-        }
+        self.timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: aiohttp.ClientSession | None = None
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._circuit_breaker = CircuitBreaker()
         self._rate_limiter = RateLimiter()
 
-    async def __aenter__(self) -> CloudflareSessionManager:
+    async def __aenter__(self) -> AiohttpSessionManager:
         """Enter async context manager - creates session."""
         connector = aiohttp.TCPConnector(
             limit=self.max_concurrent,
             force_close=True,
         )
-        timeout = aiohttp.ClientTimeout(total=CONNECTION_TIMEOUT, connect=10)
         self._session = aiohttp.ClientSession(
             connector=connector,
-            timeout=timeout,
-            headers=self.headers,
+            timeout=self.timeout,
         )
-        logger.debug("Cloudflare session created with %d max connections", self.max_concurrent)
+        logger.debug(
+            "Aiohttp session created with %d max connections", self.max_concurrent
+        )
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Exit async context manager - closes session."""
         if self._session:
             await self._session.close()
-            logger.debug("Cloudflare session closed")
+            logger.debug("Aiohttp session closed")
             self._session = None
 
     @property
@@ -262,82 +262,91 @@ class CloudflareSessionManager:
             yield
 
 
-class CloudflareClient:
-    """Client for Cloudflare Browser Rendering API.
+class AiohttpClient:
+    """Client for direct HTTP scraping with aiohttp and BeautifulSoup.
 
-    Handles authentication, request sending, retry logic, and rate limiting.
-    Supports both individual page scraping and batch scraping for better performance.
+    Handles:
+    - HTTP GET requests with retries
+    - HTML parsing with BeautifulSoup
+    - Element extraction by CSS selector (.news-item)
+    - Same retry/circuit breaker logic for robustness
+
+    This is the primary scraping client for the workflow.
 
     Args:
-        account_id: Cloudflare account ID
-        api_token: Cloudflare API token with Browser Rendering permissions
         session_manager: Optional shared session manager for connection pooling.
-                         If not provided, creates its own session per request (legacy mode).
+                         If not provided, creates its own session per request.
     """
 
     def __init__(
         self,
-        account_id: str,
-        api_token: str,
-        session_manager: CloudflareSessionManager | None = None,
+        session_manager: AiohttpSessionManager | None = None,
     ):
-        """Initialize client with Cloudflare credentials.
+        """Initialize client.
 
         Args:
-            account_id: Cloudflare account ID
-            api_token: Cloudflare API token with Browser Rendering permissions
             session_manager: Optional shared session manager for connection pooling
         """
-        self.account_id = account_id
-        self.api_token = api_token
         self.session_manager = session_manager
-        self.api_url = SCRAPE_API.format(account_id=account_id)
-        self.headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json",
-        }
 
     def _get_session(self) -> aiohttp.ClientSession:
         """Get session - either from manager or create new one."""
         if self.session_manager:
             return self.session_manager.session
         # Legacy mode: create new session (will be closed after request)
-        # This is less efficient but maintains backward compatibility
         return aiohttp.ClientSession()
 
-    def _get_api_url(self) -> str:
-        """Get API URL - either from client or manager."""
-        if self.session_manager:
-            return self.session_manager.api_url
-        return self.api_url
+    async def scrape_page(
+        self, page: int, url: str, timeout: int = 180
+    ) -> ScrapeResult:
+        """Scrape a single page using direct HTTP.
 
-    async def _make_request(
-        self,
-        page: int,
-        url: str,
-        payload: dict,
-        timeout: int,
-        attempt: int,
-    ) -> tuple[ScrapeResult, bool]:
-        """Make a single API request with retry logic. Returns (result, should_retry).
+        Implements:
+        - Retry logic with exponential backoff (MAX_RETRIES attempts)
+        - Rate limiting respect (Retry-After header)
+        - Error handling for various HTTP status codes
+        - Parsing of HTML into DividendRecord objects
+        - Connection pooling when using session_manager
 
-        Internal method used by both scrape_page and batch scraping.
+        Args:
+            page: 1-based page number (for logging)
+            url: URL to scrape
+            timeout: Request timeout in seconds
+
+        Returns:
+            ScrapeResult with items (List[DividendRecord]) or error info
         """
-        use_manager = self.session_manager is not None
+        for attempt in range(1, MAX_RETRIES + 1):
+            result, should_retry = await self._fetch_and_parse(
+                page, url, timeout, attempt
+            )
+            if not should_retry:
+                return result
 
-        # Use session from manager if available
-        if use_manager:
-            session = self.session_manager.session
-            api_url = self.session_manager.api_url
-        else:
-            session = aiohttp.ClientSession()
-            api_url = self.api_url
+        # All attempts failed
+        logger.error("Page %d: All %d attempts failed", page, MAX_RETRIES)
+        return ScrapeResult(
+            page=page,
+            items=[],
+            success=False,
+            error=f"All {MAX_RETRIES} attempts failed",
+        )
+
+    async def _fetch_and_parse(
+        self, page: int, url: str, timeout: int, attempt: int
+    ) -> tuple[ScrapeResult, bool]:
+        """Fetch HTML and parse for .news-item elements."""
+        use_manager = self.session_manager is not None
+        session = (
+            self.session_manager.session if use_manager else aiohttp.ClientSession()
+        )
 
         try:
-            async with session.post(
-                api_url,
-                json=payload,
-                headers=self.headers,
+            headers = {"User-Agent": get_random_user_agent()}
+
+            async with session.get(
+                url,
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as resp:
                 # Handle rate limiting
@@ -355,9 +364,10 @@ class CloudflareClient:
 
                     # Record rate limit hit
                     if use_manager:
-                        await self.session_manager.rate_limiter.adjust_on_failure(retry_after_val)
+                        await self.session_manager.rate_limiter.adjust_on_failure(
+                            retry_after_val
+                        )
 
-                    # Use Retry-After header value
                     await asyncio.sleep(retry_after_val)
                     return (
                         ScrapeResult(
@@ -373,147 +383,125 @@ class CloudflareClient:
                 if resp.status >= 500:
                     text = await resp.text()
                     error_msg = f"HTTP {resp.status}: {text[:200]}"
-                    logger.warning("Page %d attempt %d/%d: %s", page, attempt, MAX_RETRIES, error_msg)
+                    logger.warning(
+                        "Page %d attempt %d/%d: %s",
+                        page,
+                        attempt,
+                        MAX_RETRIES,
+                        error_msg,
+                    )
 
-                    # Server errors (5xx) are also retryable per-page
-                    # Calculate backoff: exponential but capped
-                    backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
                     if attempt < MAX_RETRIES:
+                        backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
                         await asyncio.sleep(backoff)
                     return (
-                        ScrapeResult(page=page, items=[], success=False, error=error_msg),
-                        attempt < MAX_RETRIES,
-                    )
-
-                # Handle client errors (4xx) - these are page-specific issues, not API failures
-                # Do NOT trigger circuit breaker - allow retries
-                if resp.status != 200:
-                    text = await resp.text()
-                    error_msg = f"HTTP {resp.status}: {text[:200]}"
-                    logger.warning("Page %d attempt %d/%d: %s", page, attempt, MAX_RETRIES, error_msg)
-
-                    # Client errors (4xx) like 422 (navigation timeout) are retryable
-                    # Only 5xx errors trigger circuit breaker
-                    return (
-                        ScrapeResult(page=page, items=[], success=False, error=error_msg),
-                        attempt < MAX_RETRIES,
-                    )
-
-                # Success - parse response
-                data = await resp.json()
-
-                if not data.get("success"):
-                    error_msg = data.get("error", "Unknown error")
-                    if isinstance(error_msg, dict):
-                        error_msg = str(error_msg)
-                    logger.error("Page %d: Cloudflare API returned success=false: %s", page, error_msg)
-
-                    # Cloudflare API returned success=false - this is a page-level issue
-                    # (e.g., navigation timeout, element not found). Retry the page.
-                    return (
                         ScrapeResult(
-                            page=page,
-                            items=[],
-                            success=False,
-                            error=f"CF API error: {error_msg}",
+                            page=page, items=[], success=False, error=error_msg
                         ),
                         attempt < MAX_RETRIES,
                     )
 
-                result_list = data.get("result") or []
-                if not result_list:
-                    logger.info("Page %d: Empty result list", page)
+                # Handle client errors (4xx)
+                if resp.status != 200:
+                    text = await resp.text()
+                    error_msg = f"HTTP {resp.status}: {text[:200]}"
+                    logger.warning(
+                        "Page %d attempt %d/%d: %s",
+                        page,
+                        attempt,
+                        MAX_RETRIES,
+                        error_msg,
+                    )
+                    return (
+                        ScrapeResult(
+                            page=page, items=[], success=False, error=error_msg
+                        ),
+                        attempt < MAX_RETRIES,
+                    )
 
-                    if use_manager:
-                        await self.session_manager.rate_limiter.adjust_on_success()
+                # Success - parse HTML
+                html = await resp.text()
+                items = self._parse_html(html, page, url)
 
-                    return (ScrapeResult(page=page, items=[], success=True, error=None), False)
-
-                # Find the selector block
-                selector_block = None
-                for block in result_list:
-                    if block.get("selector") == SELECTOR:
-                        selector_block = block
-                        break
-
-                if selector_block is None:
-                    logger.warning("Page %d: No %s selector block in response", page, SELECTOR)
-
-                    if use_manager:
-                        await self.session_manager.rate_limiter.adjust_on_success()
-
-                    return (ScrapeResult(page=page, items=[], success=True, error=None), False)
-
-                items = selector_block.get("results") or []
-                records = parse_items(items, page)
-
-                logger.info("Page %d: Successfully scraped %d items", page, len(records))
+                logger.info("Page %d: Successfully scraped %d items", page, len(items))
 
                 if use_manager:
                     await self.session_manager.rate_limiter.adjust_on_success()
 
-                return (ScrapeResult(page=page, items=records, success=True, error=None), False)
+                return (
+                    ScrapeResult(page=page, items=items, success=True, error=None),
+                    False,
+                )
 
         except (TimeoutError, aiohttp.ClientError) as e:
             error = f"{type(e).__name__}: {e}"
-            logger.warning("Page %d attempt %d/%d: Network error: %s", page, attempt, MAX_RETRIES, error)
-
-            # Network errors are retryable per-page, don't trigger circuit breaker
-            # Only after all retries fail will this page be marked as failed
+            logger.warning(
+                "Page %d attempt %d/%d: Network error: %s",
+                page,
+                attempt,
+                MAX_RETRIES,
+                error,
+            )
             if attempt < MAX_RETRIES:
                 backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
                 await asyncio.sleep(backoff)
-            return (ScrapeResult(page=page, items=[], success=False, error=error), attempt < MAX_RETRIES)
+            return (
+                ScrapeResult(page=page, items=[], success=False, error=error),
+                attempt < MAX_RETRIES,
+            )
 
         finally:
             # Close session only if we created it (not from manager)
             if not use_manager and session and not session.closed:
                 await session.close()
 
-    async def scrape_page(self, page: int, url: str, timeout: int) -> ScrapeResult:
-        """Scrape a single page using Cloudflare Browser Rendering.
+    def _parse_html(self, html: str, page: int, base_url: str) -> list[DividendRecord]:
+        """Parse HTML to extract DividendRecord objects.
 
-        Implements:
-        - Retry logic with exponential backoff (MAX_RETRIES attempts)
-        - Rate limiting respect (Retry-After header)
-        - Error handling for various HTTP status codes
-        - Parsing of response into DividendRecord objects
-        - Connection pooling when using session_manager
+        Uses BeautifulSoup to find .news-item elements and extract
+        company names and archive URLs.
 
         Args:
-            page: 1-based page number (for logging)
-            url: URL to scrape
-            timeout: Request timeout in seconds
+            html: Raw HTML content
+            page: Current page number (for logging)
+            base_url: Base URL for resolving relative links
 
         Returns:
-            ScrapeResult with items (List[DividendRecord]) or error info
+            List of DividendRecord objects
         """
-        payload = {
-            "url": url,
-            "userAgent": get_random_user_agent(),
-            "waitForSelector": {"selector": SELECTOR, "timeout": 60000},
-            "elements": [{"selector": SELECTOR}],
-        }
+        from bs4 import BeautifulSoup
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            result, should_retry = await self._make_request(page, url, payload, timeout, attempt)
+        soup = BeautifulSoup(html, "lxml")
+        news_items = soup.select(SELECTOR)  # .news-item
 
-            if not should_retry:
-                return result
+        records: list[DividendRecord] = []
+        for idx, item in enumerate(news_items, 1):
+            # Extract text (company name)
+            text = item.get_text(strip=True)
 
-        # All attempts failed
-        logger.error("Page %d: All %d attempts failed", page, MAX_RETRIES)
-        return ScrapeResult(
-            page=page,
-            items=[],
-            success=False,
-            error=f"All {MAX_RETRIES} attempts failed",
-        )
+            # Extract href from links within the item
+            link = item.find("a", href=True)
+            if not link:
+                logger.warning("Page %d item %d: no link found, skipping", page, idx)
+                continue
+
+            href = link["href"]
+            archive_url = urljoin(base_url, href)
+
+            if not text:
+                logger.warning(
+                    "Page %d item %d: empty company name, skipping", page, idx
+                )
+                continue
+
+            records.append(DividendRecord(company_name=text, archive_url=archive_url))
+
+        return records
 
     async def scrape_pages_batch(
         self,
         page_urls: list[tuple[int, str]],
-        timeout: int,
+        timeout: int = 180,
     ) -> list[ScrapeResult]:
         """Scrape multiple pages in parallel using batch processing.
 
@@ -531,17 +519,10 @@ class CloudflareClient:
         if not page_urls:
             return []
 
-        # Single pass with gather - no retry logic here as _make_request handles retries
+        # Single pass with gather - no retry logic here as _fetch_and_parse handles retries
         tasks = []
         for page, url in page_urls:
-            payload = {
-                "url": url,
-                "userAgent": get_random_user_agent(),
-                "waitForSelector": {"selector": SELECTOR, "timeout": 60000},
-                "elements": [{"selector": SELECTOR}],
-            }
-            # For batch, we use attempt=1 and let _make_request handle retries internally
-            task = asyncio.create_task(self._scrape_page_single(page, url, payload, timeout))
+            task = asyncio.create_task(self._scrape_page_single(page, url, timeout))
             tasks.append(task)
 
         results = await asyncio.gather(*tasks)
@@ -551,12 +532,13 @@ class CloudflareClient:
         self,
         page: int,
         url: str,
-        payload: dict,
         timeout: int,
     ) -> ScrapeResult:
         """Internal method for batch scraping a single page."""
         for attempt in range(1, MAX_RETRIES + 1):
-            result, should_retry = await self._make_request(page, url, payload, timeout, attempt)
+            result, should_retry = await self._fetch_and_parse(
+                page, url, timeout, attempt
+            )
             if not should_retry:
                 return result
 

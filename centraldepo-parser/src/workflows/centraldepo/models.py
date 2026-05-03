@@ -18,23 +18,31 @@ class DividendRecord(BaseModel):
     """Single dividend disclosure entry from centraldepo.by."""
 
     company_name: str = Field(..., description="Name of the company")
-    archive_url: str = Field(..., description="Absolute URL to the dividend archive file")
+    archive_url: str = Field(
+        ..., description="Absolute URL to the dividend archive file"
+    )
 
 
 class ScrapeResult(BaseModel):
     """Result of scraping a single page."""
 
     page: int = Field(..., description="Page number that was scraped")
-    items: list[DividendRecord] = Field(default_factory=list, description="List of dividend records found on page")
+    items: list[DividendRecord] = Field(
+        default_factory=list, description="List of dividend records found on page"
+    )
     success: bool = Field(..., description="Whether the scrape was successful")
-    error: str | None = Field(default=None, description="Error message if scrape failed")
+    error: str | None = Field(
+        default=None, description="Error message if scrape failed"
+    )
 
 
 class CompanyResult(BaseModel):
     """Aggregated result for a single company with all its URLs."""
 
     company_name: str = Field(..., description="Name of the company")
-    urls: list[str] = Field(default_factory=list, description="List of archive URLs for this company")
+    urls: list[str] = Field(
+        default_factory=list, description="List of archive URLs for this company"
+    )
 
 
 class WorkflowInput(BaseModel):
@@ -61,6 +69,10 @@ class WorkflowInput(BaseModel):
     output_path: str = Field(
         default="output/centraldepo_dividends.json",
         description="Path to save the JSON output file (default: output/centraldepo_dividends.json)",
+    )
+    stop_before_download: bool = Field(
+        default=False,
+        description="If True, stop after saving initial results without downloading/extracting/converting (for testing parsing)",
     )
 
 

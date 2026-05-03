@@ -1,7 +1,7 @@
 """Main workflow for CentralDepo Dividend Parser.
 
 This workflow scrapes dividend disclosures from centraldepo.by using
-Cloudflare Browser Rendering, with pagination support.
+direct HTTP requests with aiohttp, with pagination support.
 """
 
 import asyncio
@@ -15,9 +15,15 @@ from pathlib import Path
 import mistralai.workflows as workflows
 
 from .ai_distiller import run_ai_distillation
-from .client import CloudflareClient, CloudflareSessionManager
+from .client import AiohttpClient, AiohttpSessionManager
 from .config import BASE_URL, BATCH_SIZE, MAX_CONCURRENT_SCRAPES, SCRAPE_BATCH_DELAY
-from .models import CompanyResult, DividendRecord, ScrapeResult, WorkflowInput, WorkflowOutput
+from .models import (
+    CompanyResult,
+    DividendRecord,
+    ScrapeResult,
+    WorkflowInput,
+    WorkflowOutput,
+)
 from .parser import transform_to_output
 
 logger = logging.getLogger(__name__)
@@ -27,9 +33,7 @@ logger = logging.getLogger(__name__)
 async def scrape_single_page(
     page: int,
     url: str,
-    account_id: str,
-    api_token: str,
-    timeout: int,
+    timeout: int = 180,
 ) -> list[DividendRecord] | None:
     """Activity to scrape a single page and return dividend records.
 
@@ -39,15 +43,14 @@ async def scrape_single_page(
     Args:
         page: 1-based page number
         url: URL to scrape
-        account_id: Cloudflare account ID
-        api_token: Cloudflare API token
         timeout: Request timeout in seconds
 
     Returns:
         List of DividendRecord objects. None if page failed, empty list if no results.
     """
-    client = CloudflareClient(account_id, api_token)
-    result: ScrapeResult = await client.scrape_page(page, url, timeout)
+    async with AiohttpSessionManager() as session_mgr:
+        client = AiohttpClient(session_manager=session_mgr)
+        result: ScrapeResult = await client.scrape_page(page, url, timeout)
 
     if not result.success:
         logger.warning("Page %d failed: %s", page, result.error)
@@ -59,9 +62,7 @@ async def scrape_single_page(
 @workflows.activity()
 async def scrape_pages_batch(
     page_urls: list[tuple[int, str]],
-    account_id: str,
-    api_token: str,
-    timeout: int,
+    timeout: int = 180,
 ) -> list[ScrapeResult]:
     """Activity to scrape multiple pages in parallel with connection pooling.
 
@@ -71,64 +72,40 @@ async def scrape_pages_batch(
 
     Args:
         page_urls: List of (page_number, url) tuples to scrape
-        account_id: Cloudflare account ID
-        api_token: Cloudflare API token
         timeout: Request timeout in seconds for each page
 
     Returns:
         List of ScrapeResult objects in same order as input page_urls.
         Failed pages return ScrapeResult with success=False.
     """
-    async with CloudflareSessionManager(account_id, api_token, max_concurrent=MAX_CONCURRENT_SCRAPES) as session_mgr:
-        client = CloudflareClient(account_id, api_token, session_manager=session_mgr)
+    async with AiohttpSessionManager(
+        max_concurrent=MAX_CONCURRENT_SCRAPES
+    ) as session_mgr:
+        client = AiohttpClient(session_manager=session_mgr)
         results = await client.scrape_pages_batch(page_urls, timeout)
 
-        # Log summary
-        success_count = sum(1 for r in results if r.success)
-        failure_count = len(results) - success_count
-        total_items = sum(len(r.items) for r in results)
+    # Log summary
+    success_count = sum(1 for r in results if r.success)
+    failure_count = len(results) - success_count
+    total_items = sum(len(r.items) for r in results)
 
-        if failure_count > 0:
-            logger.warning(
-                "Batch scrape: %d/%d pages succeeded, %d failed, %d total items",
-                success_count,
-                len(results),
-                failure_count,
-                total_items,
-            )
-        else:
-            logger.info(
-                "Batch scrape: %d/%d pages succeeded, %d total items",
-                success_count,
-                len(results),
-                total_items,
-            )
+    if failure_count > 0:
+        logger.warning(
+            "Batch scrape: %d/%d pages succeeded, %d failed, %d total items",
+            success_count,
+            len(results),
+            failure_count,
+            total_items,
+        )
+    else:
+        logger.info(
+            "Batch scrape: %d/%d pages succeeded, %d total items",
+            success_count,
+            len(results),
+            total_items,
+        )
 
-        return results
-
-
-@workflows.activity()
-async def get_credentials() -> tuple[str, str]:
-    """Activity to read Cloudflare credentials from environment.
-
-    This is separated into an activity because environment variable access
-    is restricted in the Temporal workflow sandbox.
-
-    Returns:
-        Tuple of (account_id, api_token)
-
-    Raises:
-        ValueError: If credentials are not set
-    """
-    import os
-
-    account_id = os.environ.get("CF_ACCOUNT_ID", "")
-    api_token = os.environ.get("CF_API_TOKEN", "")
-
-    if not account_id or not api_token:
-        raise ValueError("CF_ACCOUNT_ID and CF_API_TOKEN environment variables required. Set them in your .env file.")
-
-    return account_id, api_token
+    return results
 
 
 @workflows.activity()
@@ -154,7 +131,9 @@ async def save_results(output: WorkflowOutput, output_path: str) -> str:
 
     # Convert to dict for JSON serialization
     data = {
-        "results": [{"company_name": r.company_name, "urls": r.urls} for r in output.results],
+        "results": [
+            {"company_name": r.company_name, "urls": r.urls} for r in output.results
+        ],
         "stats": output.stats,
     }
     if output.download_stats:
@@ -165,7 +144,9 @@ async def save_results(output: WorkflowOutput, output_path: str) -> str:
         data["conversion_stats"] = output.conversion_stats
 
     # Atomic write using temp file
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix=".centraldepo_", suffix=".tmp")
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(path.parent), prefix=".centraldepo_", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -322,12 +303,18 @@ async def generate_final_json(
     final_output_path = output_root_path / "final_mapping.json"
 
     # Atomic write using temp file
-    fd, tmp_path = tempfile.mkstemp(dir=str(final_output_path.parent), prefix=".final_mapping_", suffix=".tmp")
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(final_output_path.parent), prefix=".final_mapping_", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(final_data, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, str(final_output_path))
-        logger.info("Generated final mapping JSON with %d companies at %s", len(final_data), final_output_path)
+        logger.info(
+            "Generated final mapping JSON with %d companies at %s",
+            len(final_data),
+            final_output_path,
+        )
         return str(final_output_path)
     except Exception as e:
         if os.path.exists(tmp_path):
@@ -363,7 +350,9 @@ async def convert_all_downloaded_files(
     cleanup_source = os.environ.get("CLEANUP_SOURCE_FILES", "true").lower() == "true"
 
     # overwrite=True per user decision, pass cleanup flag
-    stats = await convert_all_files(results_list, output_root, overwrite=True, cleanup_source=cleanup_source)
+    stats = await convert_all_files(
+        results_list, output_root, overwrite=True, cleanup_source=cleanup_source
+    )
 
     logger.info(
         "Conversion complete: %d files attempted, %d successful, %d failed, %d skipped",
@@ -461,12 +450,18 @@ async def save_distillation_results(
     final_output_path = output_root_path / "ai_distilled.json"
 
     # Atomic write using temp file
-    fd, tmp_path = tempfile.mkstemp(dir=str(final_output_path.parent), prefix=".ai_distilled_", suffix=".tmp")
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(final_output_path.parent), prefix=".ai_distilled_", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(distillation_data, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, str(final_output_path))
-        logger.info("Saved AI distillation results for %d companies to %s", len(distillation_data), final_output_path)
+        logger.info(
+            "Saved AI distillation results for %d companies to %s",
+            len(distillation_data),
+            final_output_path,
+        )
         return str(final_output_path.resolve())
     except Exception as e:
         if os.path.exists(tmp_path):
@@ -477,25 +472,24 @@ async def save_distillation_results(
 @workflows.workflow.define(
     name="centraldepo-parser",
     workflow_display_name="CentralDepo Dividend Parser",
-    workflow_description="Scrapes dividend disclosures from centraldepo.by, downloads files, extracts archives, converts to MD, and extracts structured data with Mistral Large AI.",
+    workflow_description="Scrapes dividend disclosures from centraldepo.by using aiohttp, downloads files, extracts archives, converts to MD, and extracts structured data with Mistral Large AI.",
 )
 class CentralDepoWorkflow:
     """Workflow that scrapes dividend registry from centraldepo.by.
 
     This workflow:
-    1. Validates Cloudflare credentials
-    2. Iterates through paginated pages (up to max_pages)
-    3. Uses Cloudflare Browser Rendering to scrape each page
-    4. Extracts company names and archive URLs
-    5. Groups URLs by company (normalized to lowercase)
-    6. Saves results to JSON file
-    7. Downloads all files to company folders (MD5-named)
-    8. Extracts archive files (zip, tar, gz, tar.gz, tgz) into company folders
-    9. Converts all extracted files to Markdown (docx, doc, xls via Python libs; PDF via OCR)
-    10. Runs AI Data Distillation with Mistral Large on all MD files
-    11. Saves AI-extracted structured data to ai_distilled.json
-    12. Generates final_mapping.json with company info and MD file paths
-    13. Returns aggregated output with download, extraction, conversion, and distillation statistics
+    1. Iterates through paginated pages (up to max_pages)
+    2. Uses direct HTTP scraping (aiohttp) to scrape each page
+    3. Extracts company names and archive URLs
+    4. Groups URLs by company (normalized to lowercase)
+    5. Saves results to JSON file
+    6. Downloads all files to company folders (MD5-named)
+    7. Extracts archive files (zip, tar, gz, tar.gz, tgz) into company folders
+    8. Converts all extracted files to Markdown (docx, doc, xls via Python libs; PDF via OCR)
+    9. Runs AI Data Distillation with Mistral Large on all MD files
+    10. Saves AI-extracted structured data to ai_distilled.json
+    11. Generates final_mapping.json with company info and MD file paths
+    12. Returns aggregated output with download, extraction, conversion, and distillation statistics
     """
 
     @workflows.workflow.entrypoint
@@ -511,18 +505,12 @@ class CentralDepoWorkflow:
         improvement over sequential page scraping.
 
         Args:
-            input: WorkflowInput with max_pages, delay, timeout, and output_path
+            input: WorkflowInput with max_pages, delay, timeout, output_path
 
         Returns:
             WorkflowOutput with results grouped by company, stats, download_stats,
             extraction_stats, and conversion_stats
-
-        Raises:
-            ValueError: If Cloudflare credentials are missing
         """
-        # Get Cloudflare credentials via activity (sandbox restricts os.environ access)
-        account_id, api_token = await get_credentials()
-
         all_records: list[DividendRecord] = []
         total_pages_scraped = 0
         consecutive_failures = 0
@@ -538,7 +526,9 @@ class CentralDepoWorkflow:
         )
 
         # Build all page URLs upfront
-        page_urls = [(page, self._build_page_url(page)) for page in range(1, input.max_pages + 1)]
+        page_urls = [
+            (page, self._build_page_url(page)) for page in range(1, input.max_pages + 1)
+        ]
 
         # Process pages in batches for parallelism
         for batch_start in range(0, len(page_urls), BATCH_SIZE):
@@ -555,8 +545,6 @@ class CentralDepoWorkflow:
             # Scrape batch in parallel
             batch_results = await scrape_pages_batch(
                 page_urls=batch,
-                account_id=account_id,
-                api_token=api_token,
                 timeout=input.timeout,
             )
 
@@ -577,7 +565,9 @@ class CentralDepoWorkflow:
                 else:
                     batch_had_failures = True
                     consecutive_failures += 1
-                    logger.warning("Page %d failed in batch: %s", result.page, result.error)
+                    logger.warning(
+                        "Page %d failed in batch: %s", result.page, result.error
+                    )
 
             # Log batch results
             logger.info(
@@ -600,7 +590,9 @@ class CentralDepoWorkflow:
                     batch_pages[-1],
                 )
                 # Adjust total_pages_scraped since we may have not processed all pages
-                total_pages_scraped = min(input.max_pages, batch_pages[0] + len(batch) - 1)
+                total_pages_scraped = min(
+                    input.max_pages, batch_pages[0] + len(batch) - 1
+                )
                 break
 
             # Stop if too many consecutive failures
@@ -632,7 +624,8 @@ class CentralDepoWorkflow:
                 "total_pages_scraped": total_pages_scraped,
                 "total_records": len(all_records),
                 "companies_found": len(results),
-                "duplicate_urls_removed": len(all_records) - sum(len(r.urls) for r in results),
+                "duplicate_urls_removed": len(all_records)
+                - sum(len(r.urls) for r in results),
                 "batch_processing_used": True,
                 "batch_size": BATCH_SIZE,
                 "max_concurrent": MAX_CONCURRENT_SCRAPES,
@@ -643,6 +636,17 @@ class CentralDepoWorkflow:
 
         # Save to file
         saved_path = await save_results(output, input.output_path)
+
+        # Stop before download if requested (for testing parsing logic with real data)
+        if input.stop_before_download:
+            logger.info(
+                "stop_before_download=True: Skipping download, extraction, conversion, and AI distillation. "
+                "Initial results saved to %s with %d companies and %d records.",
+                saved_path,
+                len(results),
+                len(all_records),
+            )
+            return output
 
         # Download all files
         download_stats = await download_all_results_files(results, saved_path)
@@ -674,7 +678,9 @@ class CentralDepoWorkflow:
             )
 
         # Generate final JSON mapping hashed folders to company info and MD files
-        final_json_path = await generate_final_json(results, str(Path(saved_path).parent))
+        final_json_path = await generate_final_json(
+            results, str(Path(saved_path).parent)
+        )
 
         logger.info(
             "Workflow complete: %d companies, %d total records, %d files downloaded, "
