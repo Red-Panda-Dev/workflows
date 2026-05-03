@@ -189,7 +189,9 @@ async def download_company_files(
             output_path = company_folder / filename
 
             # Always download and overwrite (user decision)
-            task = asyncio.create_task(download_file(url, output_path, session, semaphore))
+            task = asyncio.create_task(
+                download_file(url, output_path, session, semaphore)
+            )
             tasks.append(task)
         except ValueError as e:
             logger.error("Skipping URL %s: %s", url, e)

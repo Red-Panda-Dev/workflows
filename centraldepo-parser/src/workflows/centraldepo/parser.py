@@ -43,7 +43,9 @@ def parse_items(raw_items: list[dict], page: int) -> list[DividendRecord]:
             logger.warning("Page %d item %d: empty company name, skipping", page, idx)
             continue
 
-        records.append(DividendRecord(company_name=company_name, archive_url=archive_url))
+        records.append(
+            DividendRecord(company_name=company_name, archive_url=archive_url)
+        )
 
     return records
 

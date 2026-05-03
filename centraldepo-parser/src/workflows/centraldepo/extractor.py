@@ -171,7 +171,9 @@ async def extract_company_archives(
         return (company_name, 0, 0, [], 0)
 
     # Find all archive files in folder
-    archive_files = [f for f in folder_path.iterdir() if f.is_file() and is_archive(f.name)]
+    archive_files = [
+        f for f in folder_path.iterdir() if f.is_file() and is_archive(f.name)
+    ]
 
     if not archive_files:
         logger.debug("No archives found for %s", company_name)
@@ -190,7 +192,9 @@ async def extract_company_archives(
 
     success = sum(1 for suc, _, _ in results if suc)
     failure = sum(1 for suc, _, _ in results if not suc)
-    failed_archives = [str(archive_files[i]) for i, (suc, _, _) in enumerate(results) if not suc]
+    failed_archives = [
+        str(archive_files[i]) for i, (suc, _, _) in enumerate(results) if not suc
+    ]
     files_extracted = sum(count for _, _, count in results)
 
     logger.info(
@@ -230,7 +234,9 @@ async def extract_all_archives(
     for company_name, _ in results:
         folder_name = get_company_folder_name(company_name)
         folder_path = output_root / folder_name
-        task = asyncio.create_task(extract_company_archives(company_name, folder_path, semaphore))
+        task = asyncio.create_task(
+            extract_company_archives(company_name, folder_path, semaphore)
+        )
         tasks.append(task)
 
     company_results = await asyncio.gather(*tasks)
