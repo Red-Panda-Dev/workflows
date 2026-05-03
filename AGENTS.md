@@ -9,6 +9,8 @@ Python workspace containing a Mistral Workflows project that scrapes dividend di
 - **Linting/formatting:** ruff (configured in root `pyproject.toml`)
 - **Workflow runtime:** Mistral AI Workflows SDK (`mistralai-workflows`)
 
+**Read first:** `ARCHITECTURE.md` — full code map, logical layers, data flow, and architectural invariants.
+
 ## Where to work
 
 ```text
@@ -63,8 +65,8 @@ make lint
 # From repo root — auto-fix and format
 make refactor
 
-# From centraldepo-parser/ — typecheck (if mypy is installed)
-uv run mypy src/
+# From repo root — type-check with ty
+make type-check
 
 # Start the dev worker (watches for file changes)
 cd centraldepo-parser && make start-worker
@@ -76,21 +78,18 @@ cd centraldepo-parser && make execute workflow=centraldepo-parser input='{"max_p
 ## Key docs
 
 - `ARCHITECTURE.md` — full code map, logical layers, data flow, architectural invariants
-- `centraldepo-parser/README.md` — setup, commands, development workflow
 - `centraldepo-parser/AGENTS.md` — project-local module map, change rules, boundaries
 - `centraldepo-parser/src/workflows/centraldepo/AGENTS.md` — pipeline internals, data contracts, activity boundaries
-- `centraldepo-parser/.agents/skills/workflows/SKILL.md` — Mistral Workflows SDK reference
+- `centraldepo-parser/README.md` — setup, commands, data model, troubleshooting
 - `.skills/python_docs_and_comments.md` — Python comment and docstring policy
 
 ## Repository-specific gotchas
 
-- **Two separate `uv` environments.** The root `pyproject.toml` has its own `.venv` (for ruff). `centraldepo-parser/` has its own `.venv` with runtime deps. Use the correct venv: root for linting, centraldepo-parser for running.
+- **Two separate `uv` environments.** The root `pyproject.toml` has its own `.venv` (for ruff + ty). `centraldepo-parser/` has its own `.venv` with runtime deps. Use the correct venv: root for linting, centraldepo-parser for running.
 - **Env vars required in `.env`.** The worker, PDF OCR, and AI distillation need `MISTRAL_API_KEY`. The scraper activities need `CF_ACCOUNT_ID` and `CF_API_TOKEN`. All `.env` files are gitignored.
 - **Root project name is a typo:** `workflows` (missing 'k') in root `pyproject.toml` — do not "fix" this without coordination.
-- **`example.py` reference in docs.** Some documentation references `example.py` (standalone scraper) but this file does not currently exist on disk. The workflow in `src/workflows/centraldepo/` is the authoritative implementation.
+- **Stale doc references.** `centraldepo-parser/README.md` mentions `example.py` and `dev_worker.py` — neither exists on disk. The workflow in `src/workflows/centraldepo/` is the authoritative implementation.
 
 ## Python comments and docstrings
 
-When editing Python files, follow the policy in `.skills/python_docs_and_comments.md`.
-
-This is mandatory for public APIs, aiohttp handlers, and non-trivial async workflows.
+Follow the policy in `.skills/python_docs_and_comments.md`. Mandatory for public APIs, aiohttp handlers, and non-trivial async workflows.
