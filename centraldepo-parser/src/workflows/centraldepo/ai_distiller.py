@@ -69,13 +69,17 @@ class AIDistiller:
 
         api_key = os.environ.get("MISTRAL_API_KEY")
         if not api_key:
-            raise ValueError("MISTRAL_API_KEY environment variable required for AI distillation")
+            raise ValueError(
+                "MISTRAL_API_KEY environment variable required for AI distillation"
+            )
 
         prompt_template = _load_prompt_template()
-        self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
+        self.system_instruction = prompt_template.replace(
+            "{{REFERENCE_DATE}}", reference_date
+        )
         self.model_name = model_name
         self.temperature = temperature
-        self.client = MistralClient(api_key=api_key, timeout=AI_TIMEOUT)
+        self.client = MistralClient(api_key=api_key, timeout_ms=AI_TIMEOUT * 1000)
 
     async def _extract_dividend_data(self, ocr_text: str) -> DividendData:
         """Extract and validate dividend data from one OCR markdown payload.
@@ -119,7 +123,9 @@ class AIDistiller:
         logger.info("Structured response parsed successfully")
         return result
 
-    async def extract_dividend_data_with_retry(self, ocr_text: str, md_path: Path) -> DividendData:
+    async def extract_dividend_data_with_retry(
+        self, ocr_text: str, md_path: Path
+    ) -> DividendData:
         """Extract dividend data with retry/backoff for transient API failures.
 
         Args:
@@ -136,9 +142,20 @@ class AIDistiller:
             try:
                 return await self._extract_dividend_data(ocr_text)
             except (Exception, asyncio.CancelledError) as e:
-                error_str = str(e).lower() if isinstance(e, Exception) else "cancellederror"
+                error_str = (
+                    str(e).lower() if isinstance(e, Exception) else "cancellederror"
+                )
                 is_retryable = any(
-                    s in error_str for s in ("503", "502", "429", "reset reason", "timeout", "overload", "cancelled")
+                    s in error_str
+                    for s in (
+                        "503",
+                        "502",
+                        "429",
+                        "reset reason",
+                        "timeout",
+                        "overload",
+                        "cancelled",
+                    )
                 )
 
                 if is_retryable and attempt < AI_MAX_RETRIES - 1:
@@ -223,7 +240,9 @@ async def process_single_file(
     )
 
     try:
-        parsed = await active_distiller.extract_dividend_data_with_retry(content, md_path)
+        parsed = await active_distiller.extract_dividend_data_with_retry(
+            content, md_path
+        )
         result_dict = parsed.model_dump(by_alias=True)
 
         logger.info(
@@ -280,7 +299,11 @@ async def process_company_files(
 
     success_count = sum(1 for suc, _, _ in results if suc)
     failure_count = len(results) - success_count
-    failed_files = [str(md_path) for md_path, (suc, _, err) in zip(md_files, results, strict=False) if not suc]
+    failed_files = [
+        str(md_path)
+        for md_path, (suc, _, err) in zip(md_files, results, strict=False)
+        if not suc
+    ]
 
     # Build results dict - map filename to result
     # Note: empty files return (True, None, None) and should be included
@@ -345,7 +368,11 @@ async def run_ai_distillation(
             return (folder_name, company_name, 0, 0, {}, [])
 
         # Find all MD files
-        md_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".md"]
+        md_files = [
+            f
+            for f in folder_path.iterdir()
+            if f.is_file() and f.suffix.lower() == ".md"
+        ]
 
         if not md_files:
             logger.debug("No MD files found for %s", company_name)
@@ -373,11 +400,22 @@ async def run_ai_distillation(
         await asyncio.sleep(AI_COMPANY_DELAY)
 
     # Aggregate results
-    for folder_name, company_name, success, failure, results_dict, failed in company_results:
+    for (
+        folder_name,
+        company_name,
+        success,
+        failure,
+        results_dict,
+        failed,
+    ) in company_results:
         folder_path = output_root / folder_name
 
         # Count MD files in this company's folder
-        md_files_in_folder = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".md"]
+        md_files_in_folder = [
+            f
+            for f in folder_path.iterdir()
+            if f.is_file() and f.suffix.lower() == ".md"
+        ]
         total_files += len(md_files_in_folder)
         total_success += success
         total_failed += failure
