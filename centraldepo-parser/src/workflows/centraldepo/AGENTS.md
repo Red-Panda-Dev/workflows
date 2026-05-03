@@ -1,21 +1,20 @@
 # AGENTS.md — CentralDepo Workflow Package
 
-Pipeline internals for the CentralDepo Dividend Parser workflow. This document covers the data flow between modules, activity boundaries, data contracts, and per-file editing rules.
+Pipeline internals for the CentralDepo Dividend Parser workflow. Covers data flow between modules, activity boundaries, data contracts, and per-file editing rules.
 
 ## Pipeline stages
 
 The workflow (`workflow.py`) executes these stages sequentially via Mistral activities:
 
-1. `get_credentials` → reads `CF_ACCOUNT_ID`, `CF_API_TOKEN` from env
-2. `scrape_pages_batch` → batches of pages via Cloudflare Browser Rendering
-3. `transform_to_output` → groups `DividendRecord` objects → `CompanyResult` objects
-4. `save_results` → writes `centraldepo_dividends.json` atomically
-5. `download_all_results_files` → downloads archives to MD5-named company folders
-6. `extract_all_downloaded_archives` → extracts ZIP/TAR/GZ, removes archives
-7. `convert_all_downloaded_files` → docx/doc/xls locally, PDF via Mistral OCR (base64 data URI)
-8. `run_ai_data_distillation` → Mistral Large structured extraction per MD file
-9. `save_distillation_results` → writes `ai_distilled.json` atomically
-10. `generate_final_json` → writes `final_mapping.json` atomically
+1. `scrape_pages_batch` → batches of pages via aiohttp
+2. `transform_to_output` → groups `DividendRecord` objects → `CompanyResult` objects
+3. `save_results` → writes `centraldepo_dividends.json` atomically
+4. `download_all_results_files` → downloads archives to MD5-named company folders
+5. `extract_all_downloaded_archives` → extracts ZIP/TAR/GZ, removes archives
+6. `convert_all_downloaded_files` → docx/doc/xls locally, PDF via Mistral OCR (base64 data URI)
+7. `run_ai_data_distillation` → Mistral Large structured extraction per MD file
+8. `save_distillation_results` → writes `ai_distilled.json` atomically
+9. `generate_final_json` → writes `final_mapping.json` atomically
 
 Early termination: batch scraping stops on empty page (end of pagination) or 3+ consecutive failures.
 
@@ -26,21 +25,19 @@ Early termination: batch scraping stops on empty page (end of pagination) or 3+ 
 | `config.py` | All constants and tuning knobs | `BASE_URL`, `SELECTOR`, `BATCH_SIZE`, `MAX_CONCURRENT_*`, `AI_MODEL`, retry/timeout defaults |
 | `models.py` | Pydantic data shapes for entire pipeline | `DividendRecord`, `ScrapeResult`, `CompanyResult`, `WorkflowInput`, `WorkflowOutput`, `DividendData`, `SharePayout` |
 | `parser.py` | HTML → structured records | `parse_items()`, `transform_to_output()` |
-| `client.py` | Cloudflare Browser Rendering HTTP client | `CloudflareClient`, `CloudflareSessionManager`, `CircuitBreaker`, `RateLimiter` |
+| `client.py` | HTTP client | `AiohttpClient`, `AiohttpSessionManager`, `CircuitBreaker`, `RateLimiter` |
 | `downloader.py` | Concurrent file download | `download_all_files()`, `get_company_folder_name()`, `get_filename_from_url()` |
 | `extractor.py` | Archive extraction | `extract_all_archives()`, `is_archive()` |
 | `converter.py` | Document → Markdown conversion | `convert_all_files()`, `process_pdf_files()`, `convert_to_markdown()` |
 | `ai_distiller.py` | AI structured data extraction | `run_ai_distillation()`, `AIDistiller`, `process_single_file()` |
 | `prompts/dividends_parsing.md` | Mistral Large prompt template | Template with `{{REFERENCE_DATE}}` and `{{DOCUMENT_TEXT}}` placeholders |
-| `workflow.py` | Orchestration: workflow class + 10 activities | `CentralDepoWorkflow`, all `@workflows.activity()` functions |
+| `workflow.py` | Orchestration: workflow class + 9 activities | `CentralDepoWorkflow`, all `@workflows.activity()` functions |
 
 ## Data contracts between stages
 
 ```
-get_credentials() → (account_id: str, api_token: str)
-
 scrape_pages_batch()
-  input:  page_urls: list[tuple[int, str]], account_id, api_token, timeout
+  input:  page_urls: list[tuple[int, str]], timeout
   output: list[ScrapeResult]  (ScrapeResult.items = list[DividendRecord])
 
 transform_to_output()
@@ -83,8 +80,7 @@ All functions decorated with `@workflows.activity()` in `workflow.py`:
 
 | Activity | Lines | Env vars read | External calls |
 |----------|-------|---------------|----------------|
-| `get_credentials` | 110-131 | `CF_ACCOUNT_ID`, `CF_API_TOKEN` | None |
-| `scrape_pages_batch` | 59-107 | None | Cloudflare Browser Rendering API |
+| `scrape_pages_batch` | 59-107 | None | HTTP (centraldepo.by) |
 | `save_results` | 134-178 | None | Filesystem |
 | `download_all_results_files` | 181-221 | None | HTTP (centraldepo.by), Filesystem |
 | `extract_all_downloaded_archives` | 224-265 | None | Filesystem |
@@ -110,7 +106,7 @@ No circular imports exist. `config.py` and `models.py` are leaf modules with no 
 
 ### config.py
 - Single source of truth for all tuning knobs. Do not hardcode retry/timeout/concurrency values elsewhere.
-- Adding a new constant: group it under the appropriate section comment (Cloudflare, Concurrency, AI, etc.).
+- Adding a new constant: group it under the appropriate section comment (Concurrency, AI, etc.).
 
 ### models.py
 - Edit this first when changing the data schema. Then update all consumers.
@@ -121,9 +117,9 @@ No circular imports exist. `config.py` and `models.py` are leaf modules with no 
 - `transform_to_output()`: groups by lowercase company name, deduplicates URLs, preserves original case from first occurrence.
 
 ### client.py
-- `CloudflareSessionManager`: async context manager providing connection pooling, circuit breaker, and adaptive rate limiting. Use this for batch operations.
-- `CloudflareClient`: makes actual HTTP requests. Supports both standalone mode (own session) and pooled mode (via session manager).
-- Retry logic is per-page inside `_make_request()`. The circuit breaker only triggers on patterns across pages, not individual retry loops.
+- `AiohttpSessionManager`: async context manager providing connection pooling, circuit breaker, and adaptive rate limiting. Use this for batch operations.
+- `AiohttpClient`: makes actual HTTP requests. Supports both standalone mode (own session) and pooled mode (via session manager).
+- Retry logic is per-page inside `_fetch_and_parse()`. The circuit breaker only triggers on patterns across pages, not individual retry loops.
 - `CircuitBreaker`: opens after `CIRCUIT_BREAKER_MAX_FAILURES` consecutive failures, reopens after `CIRCUIT_BREAKER_RESET_TIMEOUT` seconds.
 - `RateLimiter`: adjusts delay based on 429 Retry-After headers and success/failure patterns.
 
