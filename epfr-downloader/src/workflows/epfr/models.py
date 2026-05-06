@@ -4,9 +4,13 @@ Models mirror the JSON structure returned by the EPFR API at
 /portal/reporting/securities-market and define workflow I/O shapes.
 """
 
-from typing import Any
+from datetime import date
+from decimal import Decimal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from .config import AI_DISTILLED_FILENAME, AI_FILE_DELAY, AI_MAX_RETRIES, AI_MODEL, AI_TEMPERATURE, MAPPING_FILENAME
 
 
 class Label(BaseModel):
@@ -194,4 +198,122 @@ class EpfrPdfOcrOutput(BaseModel):
     total_skipped: int = 0
     cleaned_up_files: list[str] = Field(default_factory=list)
     failed_files: list[str] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+PeriodType = Literal["annual", "halfyear", "quarterly"]
+
+
+class EpfrDividendEntry(BaseModel):
+    """Represent one normalized dividend payout extracted from one file."""
+
+    period_year: int = Field(..., ge=1990)
+    period_type: PeriodType
+    period_number: int = Field(..., ge=1)
+    amount_per_share: Decimal = Field(..., ge=Decimal("0"), max_digits=20, decimal_places=8)
+    decision_date: date
+    record_date: date
+    payment_date: date
+
+    @model_validator(mode="after")
+    def validate_period_and_dates(self) -> "EpfrDividendEntry":
+        """Validate period numbering and date ordering business constraints."""
+        if self.period_type == "annual" and self.period_number != 1:
+            raise ValueError("period_number must be 1 for annual period_type")
+        if self.period_type == "halfyear" and self.period_number not in {1, 2}:
+            raise ValueError("period_number must be 1 or 2 for halfyear period_type")
+        if self.period_type == "quarterly" and self.period_number not in {1, 2, 3, 4}:
+            raise ValueError("period_number must be between 1 and 4 for quarterly period_type")
+        if self.decision_date < self.record_date:
+            raise ValueError("decision_date must be greater than or equal to record_date")
+        if self.payment_date <= self.decision_date:
+            raise ValueError("payment_date must be greater than decision_date")
+        return self
+
+
+class EpfrDividendExtraction(BaseModel):
+    """Represent AI extraction output for one document with payout details."""
+
+    has_dividends: bool
+    ai_comment: str = ""
+    dividends: list[EpfrDividendEntry] = Field(default_factory=list)
+
+
+class EpfrAiDistilledFile(BaseModel):
+    """Represent one mapped file enriched with AI-extracted dividend details."""
+
+    id: int
+    file_path: str
+    filename: str
+    original_name: str
+    upload_date: str = ""
+    extracted_from: str | None = None
+    converted_from: str | None = None
+    has_dividends: bool = False
+    ai_comment: str = ""
+    dividends: list[EpfrDividendEntry] = Field(default_factory=list)
+    autofilled_fields: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class EpfrAiDistilledCompany(BaseModel):
+    """Represent all distilled files for one company UNP bucket."""
+
+    company_name: str
+    unp: str
+    holder_id: int
+    files: list[EpfrAiDistilledFile] = Field(default_factory=list)
+
+
+class EpfrAiDistillerInput(BaseModel):
+    """Configure EPFR AI dividend distillation workflow execution."""
+
+    output_dir: str = Field(
+        default="output",
+        description="Root directory containing UNP folders and mapping JSON",
+    )
+    mapping_filename: str = Field(
+        default=MAPPING_FILENAME,
+        description="Input mapping filename inside output_dir",
+    )
+    output_filename: str = Field(
+        default=AI_DISTILLED_FILENAME,
+        description="Output JSON filename inside output_dir",
+    )
+    model_name: str = Field(
+        default=AI_MODEL,
+        description="Mistral model identifier for chat.parse extraction",
+    )
+    temperature: float = Field(
+        default=AI_TEMPERATURE,
+        ge=0,
+        le=2,
+        description="Mistral model temperature",
+    )
+    max_retries: int = Field(
+        default=AI_MAX_RETRIES,
+        ge=1,
+        le=10,
+        description="Maximum retry attempts for transient AI call failures",
+    )
+    file_delay_seconds: float = Field(
+        default=AI_FILE_DELAY,
+        ge=0,
+        le=30,
+        description="Delay between sequential file processing operations",
+    )
+    unps: list[str] | None = Field(
+        default=None,
+        description="Optional subset of UNP company folders to process",
+    )
+
+
+class EpfrAiDistillerOutput(BaseModel):
+    """Report AI distillation totals, failures, and output location."""
+
+    output_path: str = ""
+    total_companies: int = 0
+    total_files: int = 0
+    successful: int = 0
+    failed: int = 0
     stats: dict[str, Any] = Field(default_factory=dict)

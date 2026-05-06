@@ -31,7 +31,15 @@ MAX_CONCURRENT_OCR = 2
 MAX_PDF_SIZE_BYTES = 50 * 1024 * 1024
 OCR_MODEL = "mistral-ocr-latest"
 
+AI_MODEL = "mistral-large-latest"
+AI_TEMPERATURE = 0.0
+AI_TIMEOUT = 60
+AI_MAX_RETRIES = 3
+AI_RETRY_BACKOFF_BASE = 2
+AI_FILE_DELAY = 1
+
 DEFAULT_OUTPUT_DIR = Path("output")
 MAPPING_FILENAME = "unp_file_mapping.json"
+AI_DISTILLED_FILENAME = "ai_distilled_dividends.json"
 
 FIRST_PAGE_NO = 0
