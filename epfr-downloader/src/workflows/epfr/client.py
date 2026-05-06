@@ -267,9 +267,8 @@ async def download_all_files(
 ) -> dict:
     """Download all disclosure attachments grouped by company UNP.
 
-    Each EPFR record is routed to the holder UNP when present, falling back to
-    the issuer organization UNP, matching the mapping layout consumed by later
-    extraction and conversion stages.
+    Each EPFR record is routed to the holder UNP, matching the mapping
+    layout consumed by later extraction and conversion stages.
 
     Args:
         records: List of EpfrRecord objects from the API.
@@ -346,18 +345,16 @@ async def download_all_files(
 
 
 def _get_unp(record: EpfrRecord) -> str:
-    """Return the company UNP used for output grouping.
+    """Return the holder UNP used for output grouping.
 
     Args:
-        record: EPFR disclosure record with optional holder and organization.
+        record: EPFR disclosure record with optional holder.
 
     Returns:
-        Holder UNP when present, organization UNP as fallback, otherwise
-        ``"unknown"`` for records that cannot be attributed.
+        Holder UNP when present, otherwise ``"unknown"`` for records
+        that cannot be attributed.
 
     """
     if record.holder and record.holder.unp:
         return record.holder.unp
-    if record.organization and record.organization.unp:
-        return record.organization.unp
     return "unknown"

@@ -26,9 +26,6 @@ class Organization(BaseModel):
     id: int
     title: str
     unp: str = ""
-    short_name: str = Field(default="", alias="shortName")
-
-    model_config = {"populate_by_name": True}
 
 
 class User(BaseModel):
@@ -40,7 +37,6 @@ class User(BaseModel):
     patronymic: str = ""
     login: str = ""
     email: str = ""
-    organization: Organization | None = None
     certificate_id: str | None = Field(default=None, alias="certificateId")
     roles: list[Any] = Field(default_factory=list)
     state: bool | None = None
@@ -59,7 +55,6 @@ class EpfrRecord(BaseModel):
     real_upload_date: str = Field(default="", alias="realUploadDate")
     upload_date: str = Field(default="", alias="uploadDate")
     user: User | None = None
-    organization: Organization | None = None
     holder: Organization | None = None
     sub_category_type: str = Field(default="ANY", alias="subCategoryType")
 

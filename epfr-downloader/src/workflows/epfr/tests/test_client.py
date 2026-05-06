@@ -51,29 +51,18 @@ class TestGetUnp:
     def _make_record(
         self,
         holder_unp: str = "",
-        org_unp: str = "",
         holder_title: str = "",
-        org_title: str = "",
     ) -> EpfrRecord:
         holder = Organization(id=1, title=holder_title, unp=holder_unp) if holder_unp or holder_title else None
-        org = Organization(id=2, title=org_title, unp=org_unp) if org_unp or org_title else None
-        return EpfrRecord(id=1, name="Test", holder=holder, organization=org)
+        return EpfrRecord(id=1, name="Test", holder=holder)
 
     def test_holder_unp_preferred(self):
-        rec = self._make_record(holder_unp="123", org_unp="456")
+        rec = self._make_record(holder_unp="123")
         assert _get_unp(rec) == "123"
-
-    def test_fallback_to_org_unp(self):
-        rec = self._make_record(org_unp="456")
-        assert _get_unp(rec) == "456"
 
     def test_unknown_when_no_unp(self):
         rec = self._make_record()
         assert _get_unp(rec) == "unknown"
-
-    def test_holder_empty_unp_falls_back(self):
-        rec = self._make_record(holder_unp="", org_unp="789")
-        assert _get_unp(rec) == "789"
 
     def test_holder_unp_with_value(self):
         rec = self._make_record(holder_unp="600073968")

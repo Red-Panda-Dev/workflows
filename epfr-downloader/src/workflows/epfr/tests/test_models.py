@@ -27,31 +27,15 @@ SAMPLE_API_RESPONSE = {
                 "patronymic": "ПЕТРОВНА",
                 "login": "enef@enef.by",
                 "email": "enef@enef.by",
-                "organization": {
-                    "id": 3044,
-                    "title": 'Открытое акционерное общество "ЭНЭФ"',
-                    "unp": "600073968",
-                    "shortName": "",
-                    "address": "",
-                    "labels": [{"id": 1, "name": "Эмитент"}],
-                    "state": None,
-                },
                 "certificateId": None,
                 "roles": [],
                 "state": True,
                 "phoneNumber": None,
             },
-            "organization": {
-                "id": 3044,
-                "title": 'Открытое акционерное общество "ЭНЭФ"',
-                "unp": "600073968",
-                "shortName": "",
-            },
             "holder": {
                 "id": 3044,
                 "title": 'Открытое акционерное общество "ЭНЭФ"',
                 "unp": "600073968",
-                "shortName": "",
             },
             "subCategoryType": "ANY",
         },
@@ -69,34 +53,15 @@ SAMPLE_API_RESPONSE = {
                 "patronymic": "Александрович",
                 "login": "avest-200062076-3170366c030pb7",
                 "email": "-",
-                "organization": {
-                    "id": 1080,
-                    "title": 'Закрытое акционерное общество "Траст-Запад"',
-                    "unp": "200062076",
-                    "shortName": "",
-                    "address": "",
-                    "labels": [
-                        {"id": 1, "name": "Эмитент"},
-                        {"id": 2, "name": "Профучастник"},
-                    ],
-                    "state": None,
-                },
                 "certificateId": None,
                 "roles": [],
                 "state": True,
                 "phoneNumber": None,
             },
-            "organization": {
-                "id": 1080,
-                "title": 'Закрытое акционерное общество "Траст-Запад"',
-                "unp": "200062076",
-                "shortName": "",
-            },
             "holder": {
                 "id": 9899,
                 "title": 'Открытое акционерное общество "Победа"',
                 "unp": "200100116",
-                "shortName": 'ОАО "Победа"',
             },
             "subCategoryType": "ANY",
         },
@@ -165,16 +130,6 @@ class TestEpfrApiResponse:
         assert rec.holder is not None
         assert rec.holder.unp == "200100116"
         assert "Победа" in rec.holder.title
-        assert rec.holder.short_name == 'ОАО "Победа"'
-
-    def test_second_record_user_org(self):
-        response = EpfrApiResponse.model_validate(SAMPLE_API_RESPONSE)
-        user = response.content[1].user
-
-        assert user is not None
-        assert user.surname == "Якубовский"
-        assert user.organization is not None
-        assert user.organization.unp == "200062076"
 
     def test_pageable(self):
         response = EpfrApiResponse.model_validate(SAMPLE_API_RESPONSE)
