@@ -19,6 +19,7 @@ def parse_args() -> argparse.Namespace:
 
     Returns:
         Parsed workflow name and JSON input payload string.
+
     """
     parser = argparse.ArgumentParser(
         description="Trigger a workflow execution.",
@@ -44,6 +45,7 @@ async def main() -> None:
 
     Raises:
         SystemExit: If JSON input is invalid or the API key is missing.
+
     """
     args = parse_args()
     workflow_name = args.workflow

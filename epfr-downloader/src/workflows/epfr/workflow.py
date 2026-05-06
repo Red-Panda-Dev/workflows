@@ -40,6 +40,7 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
 
     Returns:
         Flattened list of all EpfrRecord objects across fetched pages.
+
     """
     all_records: list[EpfrRecord] = []
 
@@ -83,6 +84,7 @@ async def download_all_epfr_files(records: list[EpfrRecord], output_dir: str) ->
 
     Returns:
         Download statistics dictionary.
+
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -119,6 +121,7 @@ async def extract_all_epfr_archives(output_dir: str, download_stats: dict) -> di
 
     Returns:
         Extraction statistics dictionary.
+
     """
     output_path = Path(output_dir)
 
@@ -164,6 +167,7 @@ async def convert_all_epfr_files(output_dir: str, download_stats: dict) -> dict:
 
     Returns:
         Conversion statistics dictionary.
+
     """
     output_path = Path(output_dir)
 
@@ -232,6 +236,7 @@ async def save_unp_mapping(
 
     Returns:
         Absolute path to the saved mapping file.
+
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -413,6 +418,7 @@ class EpfrFilesDownloader:
 
         Returns:
             EpfrWorkflowOutput with totals, mapping path, and stats.
+
         """
         logger.info(
             "Starting EPFR download: max_pages=%d, date_from=%s, output_dir=%s",

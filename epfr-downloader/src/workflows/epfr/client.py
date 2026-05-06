@@ -47,6 +47,7 @@ def build_page_url(page_no: int, date_from: str) -> str:
 
     Returns:
         Full URL string with query parameters.
+
     """
     params = {
         "search": DEFAULT_SEARCH_QUERY,
@@ -70,6 +71,7 @@ def build_download_url(record_id: int) -> str:
 
     Returns:
         Download URL string.
+
     """
     return FILE_DOWNLOAD_URL_TEMPLATE.format(record_id=record_id)
 
@@ -96,6 +98,7 @@ async def fetch_page(
 
     Raises:
         RuntimeError: If all retry attempts fail.
+
     """
     url = build_page_url(page_no, date_from)
 
@@ -163,6 +166,7 @@ async def download_file(
 
     Returns:
         Tuple of (record_id, success, error_message, filename).
+
     """
     url = build_download_url(record_id)
 
@@ -277,6 +281,7 @@ async def download_all_files(
         - failed_ids: list of record IDs that failed
         - file_map: {record_id: filename} for successful downloads
         - by_unp: {unp: {success, failed, files: [{id, filename}]}}
+
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
 
@@ -349,6 +354,7 @@ def _get_unp(record: EpfrRecord) -> str:
     Returns:
         Holder UNP when present, organization UNP as fallback, otherwise
         ``"unknown"`` for records that cannot be attributed.
+
     """
     if record.holder and record.holder.unp:
         return record.holder.unp

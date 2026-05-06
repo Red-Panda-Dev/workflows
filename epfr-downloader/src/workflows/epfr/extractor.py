@@ -38,6 +38,7 @@ def is_archive(filename: str) -> bool:
 
     Returns:
         True when the name uses a supported archive extension.
+
     """
     name_lower = filename.lower()
     if Path(filename).suffix.lower() in ARCHIVE_EXTENSIONS:
@@ -56,6 +57,7 @@ def _detect_ooxml_type(archive_path: Path) -> str | None:
 
     Returns:
         Correct OOXML extension if detected; otherwise None.
+
     """
     try:
         with zipfile.ZipFile(archive_path, "r") as zf:
@@ -83,6 +85,7 @@ def extract_zip(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
 
     Returns:
         Number of extracted files and their archive-provided names.
+
     """
     extracted_files: list[str] = []
     with zipfile.ZipFile(archive_path, "r") as zf:
@@ -102,6 +105,7 @@ def extract_tar(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
 
     Returns:
         Number of extracted files and their archive-provided names.
+
     """
     name_lower = str(archive_path).lower()
 
@@ -133,6 +137,7 @@ def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str
     Returns:
         Success flag, optional error message, number of extracted files, and
         flattened file names written to the company folder.
+
     """
     try:
         parent_dir = archive_path.parent
@@ -169,6 +174,7 @@ def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str
 
                 Args:
                     source_dir: Current temporary extraction directory to flatten.
+
                 """
                 for item in source_dir.iterdir():
                     if item.is_dir():
@@ -220,6 +226,7 @@ async def extract_unp_archives(
     Returns:
         Tuple containing UNP, archive success and failure counts, failed archive
         paths, extracted file count, extracted file names, and archive lineage.
+
     """
     if not folder_path.exists():
         logger.warning("UNP folder does not exist: %s", folder_path)
@@ -279,6 +286,7 @@ async def extract_all_archives(
     Returns:
         Extraction statistics with aggregate totals, failed archive paths, and
         per-UNP archive lineage details.
+
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 

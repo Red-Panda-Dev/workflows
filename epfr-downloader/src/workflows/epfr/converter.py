@@ -28,6 +28,7 @@ def _table_to_md(table) -> str:
 
     Returns:
         Markdown table text preserving row and cell content.
+
     """
     md_lines = []
     for row_index, row in enumerate(table.rows):
@@ -48,6 +49,7 @@ def _extract_docx(file_path: Path) -> str:
 
     Returns:
         Markdown-ready document text with tables converted to Markdown.
+
     """
     doc = Document(str(file_path))
     md_content = []
@@ -81,6 +83,7 @@ def _extract_doc(file_path: Path) -> str:
 
     Raises:
         ValueError: If no extraction strategy can read the file.
+
     """
     try:
         doc = Document(str(file_path))
@@ -134,6 +137,7 @@ def _extract_xls(file_path: Path) -> str:
 
     Returns:
         Markdown table text from the first worksheet.
+
     """
     workbook = xlrd.open_workbook(file_path)
     sheet = workbook.sheet_by_index(0)
@@ -161,6 +165,7 @@ def _extract_xlsx(file_path: Path) -> str:
 
     Returns:
         Markdown table text from the active worksheet.
+
     """
     workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
     sheet = workbook.active
@@ -197,6 +202,7 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> tuple[bool, 
     Returns:
         Tuple of success flag, Markdown content when conversion succeeds, error
         message when conversion fails, and Markdown path when written.
+
     """
     ext = file_path.suffix.lower()
 
@@ -248,6 +254,7 @@ async def convert_unp_files(
     Returns:
         Tuple containing UNP, success count, failure count, failed file paths,
         and source-to-Markdown pairs for successful conversions.
+
     """
     if not folder_path.exists():
         logger.warning("UNP folder does not exist: %s", folder_path)
@@ -310,6 +317,7 @@ async def convert_all_files(
     Returns:
         Conversion statistics with total counts, failed files, cleaned-up source
         files, and per-UNP details.
+
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONVERSIONS)
 

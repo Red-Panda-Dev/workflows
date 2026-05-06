@@ -21,6 +21,7 @@ async def ocr_epfr_mapping_pdfs(input: EpfrPdfOcrInput) -> dict:
 
     Returns:
         OCR statistics returned by the mapping update layer.
+
     """
     logger.info(
         f"Starting epfr-pdf-ocr-converter activity with output_dir={input.output_dir}, "
@@ -60,6 +61,7 @@ class EpfrPdfOcrConverter:
 
         Returns:
             Structured OCR output with totals, failed files, cleanup list, and raw stats.
+
         """
         logger.info(
             f"Workflow epfr-pdf-ocr-converter started: output_dir={input.output_dir}, "

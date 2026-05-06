@@ -32,6 +32,7 @@ def detect_file_extension(data: bytes) -> str:
     Returns:
         File extension string starting with '.', e.g. '.pdf'.
         Returns '.bin' if no known signature matches.
+
     """
     if not data:
         return UNKNOWN_EXTENSION
@@ -55,6 +56,7 @@ def build_filename(record_id: int, data: bytes) -> str:
 
     Returns:
         Filename string, e.g. '141278.pdf'.
+
     """
     ext = detect_file_extension(data)
     return f"{record_id}{ext}"

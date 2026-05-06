@@ -38,6 +38,7 @@ async def mistralai_ocr(request: Any) -> Any:
 
     Returns:
         OCR response from the Mistral plugin.
+
     """
     if _MISTRALAI_OCR_IMPORT_ERROR is not None:
         raise RuntimeError("Mistral OCR plugin is unavailable") from _MISTRALAI_OCR_IMPORT_ERROR
@@ -70,6 +71,7 @@ async def ocr_pdf_to_markdown(
     Returns:
         Tuple of success flag, Markdown path when available, and an error code
         or message when conversion is skipped or fails.
+
     """
     md_path = pdf_path.with_suffix(".md")
     logger.info(f"Starting OCR for PDF: {pdf_path}")
@@ -129,6 +131,7 @@ async def _process_pdf_entry(
     Returns:
         Tuple of status, updated mapping entry, source PDF path, and optional
         error details.
+
     """
     filename = str(entry.get("filename", ""))
     if not filename.lower().endswith(".pdf"):
@@ -174,6 +177,7 @@ async def ocr_mapping_pdfs(
 
     Raises:
         FileNotFoundError: If the mapping JSON file does not exist.
+
     """
     mapping_path = output_root / mapping_filename
     if not mapping_path.exists():
