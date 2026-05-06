@@ -10,14 +10,14 @@ from pydantic import BaseModel, Field
 
 
 class Label(BaseModel):
-    """Organization label (e.g. 'Эмитент', 'Профучастник')."""
+    """Represent an EPFR organization label used for issuer classification."""
 
     id: int
     name: str
 
 
 class Organization(BaseModel):
-    """Company or organization referenced in a record."""
+    """Represent a company participating in an EPFR disclosure record."""
 
     id: int
     title: str
@@ -28,7 +28,7 @@ class Organization(BaseModel):
 
 
 class User(BaseModel):
-    """User who uploaded the record."""
+    """Represent the EPFR portal user who submitted a disclosure."""
 
     id: int
     surname: str = ""
@@ -46,7 +46,7 @@ class User(BaseModel):
 
 
 class EpfrRecord(BaseModel):
-    """Single disclosure record from the EPFR API."""
+    """Represent one dividend disclosure record returned by the EPFR API."""
 
     id: int
     name: str
@@ -63,7 +63,7 @@ class EpfrRecord(BaseModel):
 
 
 class SortInfo(BaseModel):
-    """Sort state in API response."""
+    """Represent sorting metadata included in paginated EPFR responses."""
 
     empty: bool = False
     sorted: bool = True
@@ -71,7 +71,7 @@ class SortInfo(BaseModel):
 
 
 class Pageable(BaseModel):
-    """Pagination metadata in API response."""
+    """Represent pagination metadata for EPFR API result pages."""
 
     sort: SortInfo = Field(default_factory=SortInfo)
     offset: int = 0
@@ -84,7 +84,7 @@ class Pageable(BaseModel):
 
 
 class EpfrApiResponse(BaseModel):
-    """Full paginated response from the EPFR securities-market API."""
+    """Represent one paginated EPFR securities-market API response."""
 
     content: list[EpfrRecord] = Field(default_factory=list)
     pageable: Pageable = Field(default_factory=Pageable)
@@ -102,12 +102,10 @@ class EpfrApiResponse(BaseModel):
 
 
 class EpfrFileRecord(BaseModel):
-    """Simplified record for the UNP-to-files mapping output.
+    """Represent one file entry in the final UNP mapping output.
 
-    Tracks file lineage:
-    - Original downloaded files have only id, filename, original_name, upload_date
-    - Files extracted from archives have extracted_from set to archive filename
-    - Markdown files from conversion have converted_from set to source filename
+    The lineage fields show whether a business document came from an archive,
+    an office-document conversion, or PDF OCR.
     """
 
     id: int
@@ -119,7 +117,7 @@ class EpfrFileRecord(BaseModel):
 
 
 class CompanyFiles(BaseModel):
-    """UNP-keyed company entry in the mapping output."""
+    """Represent all mapped disclosure files for one company UNP."""
 
     title: str
     holder_id: int
@@ -127,7 +125,7 @@ class CompanyFiles(BaseModel):
 
 
 class EpfrWorkflowInput(BaseModel):
-    """Input for the epfr-files-downloader workflow."""
+    """Configure the EPFR downloader workflow execution."""
 
     max_pages: int = Field(
         default=10,
@@ -152,7 +150,7 @@ class EpfrWorkflowInput(BaseModel):
 
 
 class EpfrWorkflowOutput(BaseModel):
-    """Output of the epfr-files-downloader workflow."""
+    """Report EPFR downloader workflow totals and mapping location."""
 
     total_records: int = 0
     total_files_downloaded: int = 0
@@ -162,7 +160,7 @@ class EpfrWorkflowOutput(BaseModel):
 
 
 class EpfrPdfOcrInput(BaseModel):
-    """Input for the epfr-pdf-ocr-converter workflow."""
+    """Configure the separate EPFR PDF OCR workflow execution."""
 
     output_dir: str = Field(
         default="output",
@@ -187,7 +185,7 @@ class EpfrPdfOcrInput(BaseModel):
 
 
 class EpfrPdfOcrOutput(BaseModel):
-    """Output for the epfr-pdf-ocr-converter workflow."""
+    """Report OCR workflow totals, failures, cleanup, and raw stats."""
 
     mapping_path: str = ""
     total_pdf_entries: int = 0

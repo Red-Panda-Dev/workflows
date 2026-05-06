@@ -117,8 +117,6 @@ class TestConvertToMarkdownExtensions:
 
     def test_docx_extension_recognized(self):
         # Just verify the extension mapping, actual conversion tested separately
-        from pathlib import Path
-
         ext = Path("file.docx").suffix.lower()
         assert ext == ".docx"
 

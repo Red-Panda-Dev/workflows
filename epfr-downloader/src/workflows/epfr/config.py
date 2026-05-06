@@ -1,4 +1,9 @@
-"""Configuration and constants for EPFR workflow."""
+"""Configuration constants for EPFR disclosure processing workflows.
+
+The values define upstream API access, retry and concurrency limits, default
+workflow inputs, output artifact names, and OCR safety limits shared by the
+EPFR downloader and PDF OCR workflows.
+"""
 
 from pathlib import Path
 
