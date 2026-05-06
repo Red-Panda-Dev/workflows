@@ -21,7 +21,14 @@ MAX_CONCURRENT_CONVERSIONS = 5
 
 
 def _table_to_md(table) -> str:
-    """Convert a python-docx table to markdown format."""
+    """Render a Word table as Markdown for disclosure text output.
+
+    Args:
+        table: ``python-docx`` table extracted from a disclosure document.
+
+    Returns:
+        Markdown table text preserving row and cell content.
+    """
     md_lines = []
     for i, row in enumerate(table.rows):
         cells = [cell.text.strip() for cell in row.cells]
@@ -34,7 +41,14 @@ def _table_to_md(table) -> str:
 
 
 def _extract_docx(file_path: Path) -> str:
-    """Extract text and tables from .docx file."""
+    """Extract text and tables from a DOCX disclosure document.
+
+    Args:
+        file_path: Path to the downloaded DOCX file.
+
+    Returns:
+        Markdown-ready document text with tables converted to Markdown.
+    """
     doc = Document(str(file_path))
     md_content = []
 
@@ -54,13 +68,19 @@ def _extract_docx(file_path: Path) -> str:
 
 
 def _extract_doc(file_path: Path) -> str:
-    """Extract text from .doc file using multiple methods.
+    """Extract text from a legacy DOC disclosure document.
 
-    Tries multiple approaches in order:
-    1. python-docx (for .docx files mislabeled as .doc)
-    2. docx2txt (for .docx files)
-    3. antiword/catdoc subprocess extraction (for binary .doc - requires system deps)
-    4. Raw binary reading with common encodings
+    Some EPFR records use misleading extensions, so the converter tries OOXML
+    readers first, then binary DOC tools, then common text encodings.
+
+    Args:
+        file_path: Path to the downloaded DOC file.
+
+    Returns:
+        Extracted text suitable for writing to Markdown.
+
+    Raises:
+        ValueError: If no extraction strategy can read the file.
     """
     # Try 1: python-docx (for .docx files mislabeled as .doc)
     try:
@@ -111,7 +131,14 @@ def _extract_doc(file_path: Path) -> str:
 
 
 def _extract_xls(file_path: Path) -> str:
-    """Extract data from .xls file to markdown table."""
+    """Extract the first XLS worksheet as a Markdown table.
+
+    Args:
+        file_path: Path to the downloaded XLS file.
+
+    Returns:
+        Markdown table text from the first worksheet.
+    """
     workbook = xlrd.open_workbook(file_path)
     sheet = workbook.sheet_by_index(0)
 
@@ -133,7 +160,14 @@ def _extract_xls(file_path: Path) -> str:
 
 
 def _extract_xlsx(file_path: Path) -> str:
-    """Extract data from .xlsx file to markdown table."""
+    """Extract the first XLSX worksheet as a Markdown table.
+
+    Args:
+        file_path: Path to the downloaded XLSX file.
+
+    Returns:
+        Markdown table text from the active worksheet.
+    """
     workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
     sheet = workbook.active
 
@@ -159,14 +193,18 @@ def _extract_xlsx(file_path: Path) -> str:
 
 
 def convert_to_markdown(file_path: Path, overwrite: bool = True) -> tuple[bool, str | None, str | None, Path | None]:
-    """Convert a single file to markdown based on its extension.
+    """Convert one supported EPFR office document to Markdown.
+
+    Produces a sibling ``.md`` artifact for the mapping stage while preserving
+    an explicit error string for unsupported or unreadable source files.
 
     Args:
-        file_path: Path to the file to convert
-        overwrite: If True, overwrite existing .md file (default: True)
+        file_path: Path to the file to convert.
+        overwrite: If True, overwrite an existing Markdown file.
 
     Returns:
-        Tuple of (success, markdown_content_or_none, error_msg_or_none, md_path_or_none)
+        Tuple of success flag, Markdown content when conversion succeeds, error
+        message when conversion fails, and Markdown path when written.
     """
     ext = file_path.suffix.lower()
 
@@ -204,17 +242,20 @@ async def convert_unp_files(
     semaphore: asyncio.Semaphore,
     overwrite: bool = True,
 ) -> tuple[str, int, int, list[str], list[tuple[Path, Path]]]:
-    """Convert all eligible files in a UNP folder.
+    """Convert all supported office documents for one company UNP.
+
+    Scans a company folder for downloaded DOC/DOCX/XLS/XLSX files and converts
+    each one to Markdown so the final mapping can point to normalized text.
 
     Args:
-        unp: UNP identifier for logging
-        folder_path: Path to UNP folder
-        semaphore: Concurrency limiter
-        overwrite: Whether to overwrite existing .md files (default: True)
+        unp: Company tax identifier for logging and statistics.
+        folder_path: Path to the company folder.
+        semaphore: Concurrency limiter shared across UNP folders.
+        overwrite: Whether to overwrite existing Markdown files.
 
     Returns:
-        Tuple of (unp, success_count, failure_count, failed_files, converted_pairs)
-        where converted_pairs is a list of (source_path, md_path) tuples
+        Tuple containing UNP, success count, failure count, failed file paths,
+        and source-to-Markdown pairs for successful conversions.
     """
     if not folder_path.exists():
         logger.warning("UNP folder does not exist: %s", folder_path)
@@ -264,23 +305,20 @@ async def convert_all_files(
     overwrite: bool = True,
     cleanup_source: bool = True,
 ) -> dict:
-    """Convert all files for all UNPs to markdown.
+    """Convert supported office documents across all company folders.
+
+    Aggregates per-UNP conversion results and optionally removes source office
+    documents after successful Markdown creation to keep mapping output clean.
 
     Args:
-        unp_folders: List of UNP folder names to process
-        output_root: Root output directory
-        overwrite: Whether to overwrite existing .md files (default: True)
-        cleanup_source: If True, remove source files after successful conversion (default: True)
+        unp_folders: Company UNP folder names to process.
+        output_root: Root output directory containing UNP folders.
+        overwrite: Whether to overwrite existing Markdown files.
+        cleanup_source: Whether to delete source files after successful conversion.
 
     Returns:
-        Dictionary with conversion statistics:
-        - total_unps: number of UNP folders processed
-        - total_files_attempted: total files attempted
-        - total_successful: successful conversions
-        - total_failed: failed conversions
-        - failed_files: list of failed file paths
-        - cleaned_up_files: list of source files removed after conversion
-        - by_unp: per-UNP breakdown with converted_pairs
+        Conversion statistics with total counts, failed files, cleaned-up source
+        files, and per-UNP details.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_CONVERSIONS)
 

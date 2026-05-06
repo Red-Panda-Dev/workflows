@@ -21,11 +21,10 @@ SIGNATURES: list[tuple[bytes, str]] = [
 
 
 def detect_file_extension(data: bytes) -> str:
-    """Detect file extension from leading magic bytes.
+    """Detect the business file type from raw EPFR attachment bytes.
 
-    For ZIP-based formats (DOCX, XLSX, ODT, etc.) the generic .zip extension
-    is returned since the content is valid regardless — the extractor handles
-    the inner format.
+    EPFR downloads do not include reliable filenames, so the first response
+    chunk determines the extension used for downstream extraction and mapping.
 
     Args:
         data: Leading bytes of a file (first chunk is sufficient).
@@ -45,7 +44,10 @@ def detect_file_extension(data: bytes) -> str:
 
 
 def build_filename(record_id: int, data: bytes) -> str:
-    """Build a filename from record ID and detected extension.
+    """Build the deterministic local filename for an EPFR attachment.
+
+    Uses the record ID as a stable stem and the detected extension so all later
+    workflow stages can correlate files back to source records.
 
     Args:
         record_id: EPFR record ID (used as the stem).

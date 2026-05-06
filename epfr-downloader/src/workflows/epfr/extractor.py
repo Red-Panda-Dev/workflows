@@ -31,7 +31,14 @@ OOXML_EXTENSION_MAP = {
 
 
 def is_archive(filename: str) -> bool:
-    """Check if a file is a supported archive format."""
+    """Return whether a downloaded EPFR file should be extracted.
+
+    Args:
+        filename: File name or path to inspect.
+
+    Returns:
+        True when the name uses a supported archive extension.
+    """
     name_lower = filename.lower()
     if Path(filename).suffix.lower() in ARCHIVE_EXTENSIONS:
         return True
@@ -39,13 +46,16 @@ def is_archive(filename: str) -> bool:
 
 
 def _detect_ooxml_type(archive_path: Path) -> str | None:
-    """Detect if a ZIP file is an OOXML document and return the correct extension.
+    """Detect whether a ZIP payload is actually an OOXML document.
+
+    EPFR returns bytes without trustworthy filenames, so ZIP files that contain
+    Word, Excel, or PowerPoint structures are renamed instead of extracted.
 
     Args:
-        archive_path: Path to the ZIP file
+        archive_path: Path to the ZIP file.
 
     Returns:
-        Correct extension (.docx, .xlsx, .pptx) if OOXML, None otherwise
+        Correct OOXML extension if detected; otherwise None.
     """
     try:
         with zipfile.ZipFile(archive_path, "r") as zf:
@@ -66,14 +76,14 @@ def _detect_ooxml_type(archive_path: Path) -> str | None:
 
 
 def extract_zip(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
-    """Extract a ZIP archive preserving original filenames.
+    """Extract a ZIP disclosure archive preserving original filenames.
 
     Args:
-        archive_path: Path to the ZIP file
-        extract_dir: Directory to extract to
+        archive_path: Path to the ZIP file.
+        extract_dir: Temporary directory to extract into.
 
     Returns:
-        Tuple of (files_extracted_count, list_of_extracted_filenames)
+        Number of extracted files and their archive-provided names.
     """
     extracted_files: list[str] = []
     with zipfile.ZipFile(archive_path, "r") as zf:
@@ -85,14 +95,14 @@ def extract_zip(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
 
 
 def extract_tar(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
-    """Extract a TAR, GZ, or TGZ archive preserving original filenames.
+    """Extract a TAR/GZ disclosure archive preserving original filenames.
 
     Args:
-        archive_path: Path to the TAR file
-        extract_dir: Directory to extract to
+        archive_path: Path to the TAR, GZ, or TGZ file.
+        extract_dir: Temporary directory to extract into.
 
     Returns:
-        Tuple of (files_extracted_count, list_of_extracted_filenames)
+        Number of extracted files and their archive-provided names.
     """
     name_lower = str(archive_path).lower()
 
@@ -114,18 +124,17 @@ def extract_tar(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
 
 
 def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str]]:
-    """Extract a single archive file or rename if it's an OOXML document.
+    """Extract one archive into its UNP folder or rename OOXML content.
 
-    Uses atomic extraction pattern: extract to temp dir first, then move files.
-    Preserves original filenames from archive (no lowercasing).
-    Flattens nested directories: all files are moved directly to parent folder.
+    Uses a temporary extraction directory and then flattens extracted files into
+    the company folder so the mapping can reference simple file names.
 
     Args:
-        archive_path: Path to the archive file to extract
+        archive_path: Path to the archive file to extract.
 
     Returns:
-        Tuple of (success, error_message, files_extracted_count, extracted_filenames)
-        extracted_filenames contains only file names (not directories), flattened to parent.
+        Success flag, optional error message, number of extracted files, and
+        flattened file names written to the company folder.
     """
     try:
         parent_dir = archive_path.parent
@@ -160,7 +169,11 @@ def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str
             final_files: list[str] = []
 
             def move_files_recursive(source_dir: Path) -> None:
-                """Recursively move all files from source_dir to parent_dir."""
+                """Move extracted files into the company folder.
+
+                Args:
+                    source_dir: Current temporary extraction directory to flatten.
+                """
                 for item in source_dir.iterdir():
                     if item.is_dir():
                         move_files_recursive(item)
@@ -202,17 +215,19 @@ async def extract_unp_archives(
     folder_path: Path,
     semaphore: asyncio.Semaphore,
 ) -> tuple[str, int, int, list[str], int, list[str], dict[str, list[str]]]:
-    """Extract all archives for a single UNP folder.
+    """Extract all supported archives for one company UNP folder.
+
+    Produces archive-to-file lineage so the final mapping can replace archive
+    entries with the actual disclosure documents that were inside them.
 
     Args:
-        unp: UNP identifier for logging
-        folder_path: Path to the UNP folder
-        semaphore: Concurrency limiter
+        unp: Company tax identifier for logging and statistics.
+        folder_path: Path to the company folder.
+        semaphore: Concurrency limiter shared across UNP folders.
 
     Returns:
-        Tuple of (unp, success_count, failure_count, failed_archives, files_extracted,
-                  all_extracted_filenames, archive_to_files_map)
-        where archive_to_files_map is {archive_filename: [extracted_filenames]}
+        Tuple containing UNP, archive success and failure counts, failed archive
+        paths, extracted file count, extracted file names, and archive lineage.
     """
     if not folder_path.exists():
         logger.warning("UNP folder does not exist: %s", folder_path)
@@ -262,21 +277,18 @@ async def extract_all_archives(
     unp_folders: list[str],
     output_root: Path,
 ) -> dict:
-    """Extract archives for all UNP folders in parallel.
+    """Extract downloaded archives across all company folders.
+
+    Aggregates per-company archive processing results for the mapping activity
+    that decides which original archive entries should be replaced.
 
     Args:
-        unp_folders: List of UNP folder names to process
-        output_root: Root output directory
+        unp_folders: Company UNP folder names to process.
+        output_root: Root output directory containing UNP folders.
 
     Returns:
-        Dictionary with extraction statistics:
-        - total_unps: number of UNP folders processed
-        - total_archives: total archives found
-        - successful: successfully extracted archive count
-        - failed: failed extraction count
-        - failed_archives: list of archive paths that failed
-        - files_extracted: total count of files extracted
-        - by_unp: per-UNP breakdown with extracted file lists and archive_to_files mapping
+        Extraction statistics with aggregate totals, failed archive paths, and
+        per-UNP archive lineage details.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_EXTRACTS)
 

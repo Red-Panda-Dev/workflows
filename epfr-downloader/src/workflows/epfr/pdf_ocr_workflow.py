@@ -13,7 +13,15 @@ logger = logging.getLogger(__name__)
 
 @workflows.activity()
 async def ocr_epfr_mapping_pdfs(input: EpfrPdfOcrInput) -> dict:
-    """OCR all PDF mapping entries and update the mapping file."""
+    """Run the OCR mapping update activity for downloaded EPFR PDFs.
+
+    Args:
+        input: OCR workflow input with output location, overwrite behavior,
+            cleanup behavior, and optional UNP filter.
+
+    Returns:
+        OCR statistics returned by the mapping update layer.
+    """
     logger.info(
         f"Starting epfr-pdf-ocr-converter activity with output_dir={input.output_dir}, "
         f"mapping_filename={input.mapping_filename}, overwrite={input.overwrite}, "
@@ -37,10 +45,22 @@ async def ocr_epfr_mapping_pdfs(input: EpfrPdfOcrInput) -> dict:
     workflow_description="Converts downloaded EPFR PDF files to markdown using Mistral OCR and updates mapping.",
 )
 class EpfrPdfOcrConverter:
-    """Workflow that OCR-converts PDFs and updates unp_file_mapping.json."""
+    """Convert mapped EPFR PDF disclosures to Markdown via Mistral OCR.
+
+    The workflow reads the existing UNP file mapping, OCRs PDF entries, updates
+    those entries to point at Markdown files, and returns processing statistics.
+    """
 
     @workflows.workflow.entrypoint
     async def run(self, input: EpfrPdfOcrInput) -> EpfrPdfOcrOutput:
+        """Run the EPFR PDF OCR conversion workflow.
+
+        Args:
+            input: OCR workflow input containing mapping location and process flags.
+
+        Returns:
+            Structured OCR output with totals, failed files, cleanup list, and raw stats.
+        """
         logger.info(
             f"Workflow epfr-pdf-ocr-converter started: output_dir={input.output_dir}, "
             f"mapping_filename={input.mapping_filename}, overwrite={input.overwrite}, "
