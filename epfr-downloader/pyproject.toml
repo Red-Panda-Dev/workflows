@@ -1,0 +1,29 @@
+[project]
+name = "epfr-downloader"
+version = "0.1.0"
+description = "Mistral Workflow to download dividend disclosure files from epfr.gov.by"
+requires-python = "==3.14.3"
+dependencies = [
+    "mistralai-workflows==3.1.1",
+    "mistralai-workflows-plugins-mistralai==3.1.1",
+    "mistralai==2.4.0",
+    "pydantic==2.13.2",
+    "python-dotenv==1.2.2",
+    "aiohttp==3.13.5",
+    "python-docx>=1.1.2",
+    "docx2txt>=0.8",
+    "xlrd>=2.0.1",
+    "openpyxl>=3.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.11",
+    "pytest==9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+
+[tool.ruff]
+line-length = 120
