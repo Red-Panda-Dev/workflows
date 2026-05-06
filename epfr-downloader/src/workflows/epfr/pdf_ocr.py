@@ -9,16 +9,24 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from mistralai.client.models import DocumentURLChunk
-from mistralai.workflows.plugins.mistralai import OCRRequest
-from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
+try:
+    from mistralai.client.models import DocumentURLChunk
+    from mistralai.workflows.plugins.mistralai import OCRRequest
+    from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
+except Exception as exc:  # pragma: no cover - depends on runtime workflow configuration
+    DocumentURLChunk = None
+    OCRRequest = None
+    _mistralai_ocr = None
+    _MISTRALAI_OCR_IMPORT_ERROR = exc
+else:
+    _MISTRALAI_OCR_IMPORT_ERROR = None
 
 from .config import MAX_CONCURRENT_OCR, MAX_PDF_SIZE_BYTES, OCR_MODEL
 
 logger = logging.getLogger(__name__)
 
 
-async def mistralai_ocr(request: OCRRequest | dict[str, str]) -> Any:
+async def mistralai_ocr(request: Any) -> Any:
     """Submit an OCR request through the Mistral Workflows plugin.
 
     Accepts the lightweight dictionary payload used by the EPFR OCR business
@@ -31,6 +39,9 @@ async def mistralai_ocr(request: OCRRequest | dict[str, str]) -> Any:
     Returns:
         OCR response from the Mistral plugin.
     """
+    if _MISTRALAI_OCR_IMPORT_ERROR is not None:
+        raise RuntimeError("Mistral OCR plugin is unavailable") from _MISTRALAI_OCR_IMPORT_ERROR
+
     if isinstance(request, dict):
         request = OCRRequest(
             model=request["model"],
