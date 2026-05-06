@@ -43,3 +43,4 @@ MAPPING_FILENAME = "unp_file_mapping.json"
 AI_DISTILLED_FILENAME = "ai_distilled_dividends.json"
 
 FIRST_PAGE_NO = 0
+PAGE_DELAY = 1.0

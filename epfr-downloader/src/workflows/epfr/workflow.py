@@ -5,6 +5,7 @@ for each record, extracts archives, converts documents to Markdown,
 saves to output/<UNP>/, and produces a JSON mapping.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ import aiohttp
 import mistralai.workflows as workflows
 
 from .client import _get_unp, download_all_files, fetch_page
-from .config import FIRST_PAGE_NO, MAPPING_FILENAME
+from .config import FIRST_PAGE_NO, MAPPING_FILENAME, PAGE_DELAY
 from .converter import convert_all_files
 from .extractor import extract_all_archives
 from .models import (
@@ -65,6 +66,8 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
             if response.last:
                 logger.info("Last page reached at pageNo=%d", page_no)
                 break
+
+            await asyncio.sleep(PAGE_DELAY)
 
     logger.info("Fetched %d total records across pages", len(all_records))
     return all_records
@@ -268,9 +271,8 @@ async def save_unp_mapping(
             skipped_no_holder += 1
             if skipped_no_holder <= 3:
                 logger.warning(
-                    "Record %d: holder=None, org=%s",
+                    "Record %d: holder=None",
                     rec.id,
-                    rec.organization,
                 )
             continue
 
