@@ -18,31 +18,25 @@ class DividendRecord(BaseModel):
     """Single dividend disclosure entry from centraldepo.by."""
 
     company_name: str = Field(..., description="Name of the company")
-    archive_url: str = Field(
-        ..., description="Absolute URL to the dividend archive file"
-    )
+    archive_url: str = Field(..., description="Absolute URL to the dividend archive file")
 
 
 class ScrapeResult(BaseModel):
     """Result of scraping a single page."""
 
     page: int = Field(..., description="Page number that was scraped")
-    items: list[DividendRecord] = Field(
-        default_factory=list, description="List of dividend records found on page"
-    )
+    items: list[DividendRecord] = Field(default_factory=list, description="List of dividend records found on page")
     success: bool = Field(..., description="Whether the scrape was successful")
-    error: str | None = Field(
-        default=None, description="Error message if scrape failed"
-    )
+    error: str | None = Field(default=None, description="Error message if scrape failed")
 
 
 class CompanyResult(BaseModel):
     """Aggregated result for a single company with all its URLs."""
 
     company_name: str = Field(..., description="Name of the company")
-    urls: list[str] = Field(
-        default_factory=list, description="List of archive URLs for this company"
-    )
+    company_hash: str = Field(..., description="MD5 hash of lowercase company name used as folder name")
+    urls: list[str] = Field(default_factory=list, description="List of archive URLs for this company")
+    files: list[str] = Field(default_factory=list, description="List of local file names in the company folder")
 
 
 class WorkflowInput(BaseModel):
@@ -73,6 +67,50 @@ class WorkflowInput(BaseModel):
     stop_before_download: bool = Field(
         default=False,
         description="If True, stop after saving initial results without downloading/extracting/converting (for testing parsing)",
+    )
+
+
+class CollectAssetsInput(BaseModel):
+    """Input for assets collection workflow."""
+
+    max_pages: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of pages to scrape (default: 10)",
+    )
+    delay: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=10.0,
+        description="Delay between page requests in seconds (default: 1.0)",
+    )
+    timeout: int = Field(
+        default=180,
+        ge=10,
+        le=600,
+        description="Per-request timeout in seconds (default: 180)",
+    )
+    output_path: str = Field(
+        default="output/centraldepo_dividends.json",
+        description="Path to save the JSON output file (default: output/centraldepo_dividends.json)",
+    )
+    stop_after_parse: bool = Field(
+        default=False,
+        description="If True, stop after saving parsed company URLs without download/extract.",
+    )
+
+
+class DistillDividendsInput(BaseModel):
+    """Input for markdown conversion and AI distillation workflow."""
+
+    input_path: str = Field(
+        default="output/centraldepo_dividends.json",
+        description="Path to a JSON file with workflow results[company_name, company_hash, urls]",
+    )
+    reference_date: str | None = Field(
+        default=None,
+        description="Reference date in YYYY-MM-DD for AI extraction context.",
     )
 
 

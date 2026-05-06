@@ -69,14 +69,10 @@ class AIDistiller:
 
         api_key = os.environ.get("MISTRAL_API_KEY")
         if not api_key:
-            raise ValueError(
-                "MISTRAL_API_KEY environment variable required for AI distillation"
-            )
+            raise ValueError("MISTRAL_API_KEY environment variable required for AI distillation")
 
         prompt_template = _load_prompt_template()
-        self.system_instruction = prompt_template.replace(
-            "{{REFERENCE_DATE}}", reference_date
-        )
+        self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
         self.model_name = model_name
         self.temperature = temperature
         self.client = MistralClient(api_key=api_key, timeout_ms=AI_TIMEOUT * 1000)
@@ -123,9 +119,7 @@ class AIDistiller:
         logger.info("Structured response parsed successfully")
         return result
 
-    async def extract_dividend_data_with_retry(
-        self, ocr_text: str, md_path: Path
-    ) -> DividendData:
+    async def extract_dividend_data_with_retry(self, ocr_text: str, md_path: Path) -> DividendData:
         """Extract dividend data with retry/backoff for transient API failures.
 
         Args:
@@ -142,9 +136,7 @@ class AIDistiller:
             try:
                 return await self._extract_dividend_data(ocr_text)
             except (Exception, asyncio.CancelledError) as e:
-                error_str = (
-                    str(e).lower() if isinstance(e, Exception) else "cancellederror"
-                )
+                error_str = str(e).lower() if isinstance(e, Exception) else "cancellederror"
                 is_retryable = any(
                     s in error_str
                     for s in (
@@ -240,9 +232,7 @@ async def process_single_file(
     )
 
     try:
-        parsed = await active_distiller.extract_dividend_data_with_retry(
-            content, md_path
-        )
+        parsed = await active_distiller.extract_dividend_data_with_retry(content, md_path)
         result_dict = parsed.model_dump(by_alias=True)
 
         logger.info(
@@ -299,11 +289,7 @@ async def process_company_files(
 
     success_count = sum(1 for suc, _, _ in results if suc)
     failure_count = len(results) - success_count
-    failed_files = [
-        str(md_path)
-        for md_path, (suc, _, err) in zip(md_files, results, strict=False)
-        if not suc
-    ]
+    failed_files = [str(md_path) for md_path, (suc, _, err) in zip(md_files, results, strict=False) if not suc]
 
     # Build results dict - map filename to result
     # Note: empty files return (True, None, None) and should be included
@@ -320,7 +306,7 @@ async def process_company_files(
 
 
 async def run_ai_distillation(
-    results: list[tuple[str, list[str]]],
+    results: list[tuple[str, str, list[str]]],
     output_root: Path,
     reference_date: str,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
@@ -330,7 +316,7 @@ async def run_ai_distillation(
     ready for saving.
 
     Args:
-        results: List of (company_name, urls) tuples from workflow
+        results: List of (company_name, company_hash, urls) tuples from workflow
         output_root: Root output directory (e.g., Path("output"))
         reference_date: Current date in YYYY-MM-DD format
 
@@ -339,8 +325,6 @@ async def run_ai_distillation(
         - distillation_data: Dict mapping company_hash to output structure
         - stats: Dictionary with processing statistics
     """
-    from .downloader import get_company_folder_name
-
     all_distillation_data: dict[str, dict[str, Any]] = {}
     total_files = 0
     total_success = 0
@@ -358,30 +342,25 @@ async def run_ai_distillation(
                 distiller = AIDistiller(reference_date=reference_date)
             return distiller
 
-    async def _process_company(company_name: str, _urls: list[str]):
+    async def _process_company(company_name: str, company_hash: str, _urls: list[str]):
         """Process a single company's MD files."""
-        folder_name = get_company_folder_name(company_name)
-        folder_path = output_root / folder_name
+        folder_path = output_root / company_hash
 
         if not folder_path.exists():
             logger.warning("Company folder not found: %s", folder_path)
-            return (folder_name, company_name, 0, 0, {}, [])
+            return (company_hash, company_name, 0, 0, {}, [])
 
         # Find all MD files
-        md_files = [
-            f
-            for f in folder_path.iterdir()
-            if f.is_file() and f.suffix.lower() == ".md"
-        ]
+        md_files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".md"]
 
         if not md_files:
             logger.debug("No MD files found for %s", company_name)
-            return (folder_name, company_name, 0, 0, {}, [])
+            return (company_hash, company_name, 0, 0, {}, [])
 
         company_distiller = await _get_distiller()
 
         return (
-            folder_name,
+            company_hash,
             company_name,
             *await process_company_files(
                 company_name,
@@ -393,8 +372,8 @@ async def run_ai_distillation(
 
     # Process companies sequentially
     company_results = []
-    for cn, urls in results:
-        result = await _process_company(cn, urls)
+    for cn, company_hash, urls in results:
+        result = await _process_company(cn, company_hash, urls)
         company_results.append(result)
         # Rate limiting: delay between companies
         await asyncio.sleep(AI_COMPANY_DELAY)
@@ -411,11 +390,7 @@ async def run_ai_distillation(
         folder_path = output_root / folder_name
 
         # Count MD files in this company's folder
-        md_files_in_folder = [
-            f
-            for f in folder_path.iterdir()
-            if f.is_file() and f.suffix.lower() == ".md"
-        ]
+        md_files_in_folder = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() == ".md"]
         total_files += len(md_files_in_folder)
         total_success += success
         total_failed += failure

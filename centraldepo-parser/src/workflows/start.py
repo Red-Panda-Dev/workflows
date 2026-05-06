@@ -55,9 +55,7 @@ async def main() -> None:
 
     raw_input = raw_input or {}
     if not isinstance(raw_input, dict):
-        raise SystemExit(
-            f"Error: --input must be a JSON object, got {type(raw_input).__name__}"
-        )
+        raise SystemExit(f"Error: --input must be a JSON object, got {type(raw_input).__name__}")
 
     api_key = os.environ.get("MISTRAL_API_KEY", "")
     if not api_key:

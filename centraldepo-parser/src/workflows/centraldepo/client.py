@@ -141,9 +141,7 @@ class RateLimiter:
         async with self._lock:
             if retry_after is not None:
                 # Respect explicit Retry-After header
-                self.delay = max(
-                    self.min_delay, min(self.max_delay, float(retry_after))
-                )
+                self.delay = max(self.min_delay, min(self.max_delay, float(retry_after)))
                 logger.info(
                     "Rate limiter: adjusted delay to %s (Retry-After: %s)",
                     self.delay,
@@ -207,9 +205,7 @@ class AiohttpSessionManager:
             connector=connector,
             timeout=self.timeout,
         )
-        logger.debug(
-            "Aiohttp session created with %d max connections", self.max_concurrent
-        )
+        logger.debug("Aiohttp session created with %d max connections", self.max_concurrent)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -296,9 +292,7 @@ class AiohttpClient:
         # Legacy mode: create new session (will be closed after request)
         return aiohttp.ClientSession()
 
-    async def scrape_page(
-        self, page: int, url: str, timeout: int = 180
-    ) -> ScrapeResult:
+    async def scrape_page(self, page: int, url: str, timeout: int = 180) -> ScrapeResult:
         """Scrape a single page using direct HTTP.
 
         Implements:
@@ -317,9 +311,7 @@ class AiohttpClient:
             ScrapeResult with items (List[DividendRecord]) or error info
         """
         for attempt in range(1, MAX_RETRIES + 1):
-            result, should_retry = await self._fetch_and_parse(
-                page, url, timeout, attempt
-            )
+            result, should_retry = await self._fetch_and_parse(page, url, timeout, attempt)
             if not should_retry:
                 return result
 
@@ -332,14 +324,10 @@ class AiohttpClient:
             error=f"All {MAX_RETRIES} attempts failed",
         )
 
-    async def _fetch_and_parse(
-        self, page: int, url: str, timeout: int, attempt: int
-    ) -> tuple[ScrapeResult, bool]:
+    async def _fetch_and_parse(self, page: int, url: str, timeout: int, attempt: int) -> tuple[ScrapeResult, bool]:
         """Fetch HTML and parse for .news-item elements."""
         use_manager = self.session_manager is not None
-        session = (
-            self.session_manager.session if use_manager else aiohttp.ClientSession()
-        )
+        session = self.session_manager.session if use_manager else aiohttp.ClientSession()
 
         try:
             headers = {"User-Agent": get_random_user_agent()}
@@ -364,9 +352,7 @@ class AiohttpClient:
 
                     # Record rate limit hit
                     if use_manager:
-                        await self.session_manager.rate_limiter.adjust_on_failure(
-                            retry_after_val
-                        )
+                        await self.session_manager.rate_limiter.adjust_on_failure(retry_after_val)
 
                     await asyncio.sleep(retry_after_val)
                     return (
@@ -395,9 +381,7 @@ class AiohttpClient:
                         backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
                         await asyncio.sleep(backoff)
                     return (
-                        ScrapeResult(
-                            page=page, items=[], success=False, error=error_msg
-                        ),
+                        ScrapeResult(page=page, items=[], success=False, error=error_msg),
                         attempt < MAX_RETRIES,
                     )
 
@@ -413,9 +397,7 @@ class AiohttpClient:
                         error_msg,
                     )
                     return (
-                        ScrapeResult(
-                            page=page, items=[], success=False, error=error_msg
-                        ),
+                        ScrapeResult(page=page, items=[], success=False, error=error_msg),
                         attempt < MAX_RETRIES,
                     )
 
@@ -489,9 +471,7 @@ class AiohttpClient:
             archive_url = urljoin(base_url, href)
 
             if not text:
-                logger.warning(
-                    "Page %d item %d: empty company name, skipping", page, idx
-                )
+                logger.warning("Page %d item %d: empty company name, skipping", page, idx)
                 continue
 
             records.append(DividendRecord(company_name=text, archive_url=archive_url))
@@ -536,9 +516,7 @@ class AiohttpClient:
     ) -> ScrapeResult:
         """Internal method for batch scraping a single page."""
         for attempt in range(1, MAX_RETRIES + 1):
-            result, should_retry = await self._fetch_and_parse(
-                page, url, timeout, attempt
-            )
+            result, should_retry = await self._fetch_and_parse(page, url, timeout, attempt)
             if not should_retry:
                 return result
 

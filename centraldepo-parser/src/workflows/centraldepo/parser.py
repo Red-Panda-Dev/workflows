@@ -5,6 +5,7 @@ from collections import defaultdict
 from urllib.parse import urljoin
 
 from .config import BASE_URL
+from .downloader import get_company_folder_name
 from .models import CompanyResult, DividendRecord
 
 # Regex to extract href from HTML
@@ -43,9 +44,7 @@ def parse_items(raw_items: list[dict], page: int) -> list[DividendRecord]:
             logger.warning("Page %d item %d: empty company name, skipping", page, idx)
             continue
 
-        records.append(
-            DividendRecord(company_name=company_name, archive_url=archive_url)
-        )
+        records.append(DividendRecord(company_name=company_name, archive_url=archive_url))
 
     return records
 
@@ -85,6 +84,7 @@ def transform_to_output(records: list[DividendRecord]) -> list[CompanyResult]:
         results.append(
             CompanyResult(
                 company_name=original_name,
+                company_hash=get_company_folder_name(original_name),
                 urls=sorted(set(urls)),
             )
         )

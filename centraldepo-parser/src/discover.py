@@ -28,9 +28,7 @@ def discover_workflows() -> list[type]:
 
     def _scan_package(package_name: str, package_path: list) -> None:
         """Recursively scan a package and its subpackages for workflow classes."""
-        for _, modname, ispkg in pkgutil.iter_modules(
-            package_path, prefix=f"{package_name}."
-        ):
+        for _, modname, ispkg in pkgutil.iter_modules(package_path, prefix=f"{package_name}."):
             try:
                 module = importlib.import_module(modname)
                 # Check for workflow classes in this module

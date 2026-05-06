@@ -162,6 +162,7 @@ async def download_file(
 
 async def download_company_files(
     company_name: str,
+    company_hash: str,
     urls: list[str],
     output_root: Path,
     semaphore: asyncio.Semaphore,
@@ -171,6 +172,7 @@ async def download_company_files(
 
     Args:
         company_name: Company name (original case for logging)
+        company_hash: Precomputed company folder hash
         urls: List of URLs to download
         output_root: Root output directory (e.g., Path("output"))
         semaphore: Global concurrency limiter
@@ -179,8 +181,7 @@ async def download_company_files(
     Returns:
         Tuple of (company_name, success_count, failure_count, failed_urls)
     """
-    folder_name = get_company_folder_name(company_name)
-    company_folder = output_root / folder_name
+    company_folder = output_root / company_hash
 
     tasks = []
     for url in urls:
@@ -189,9 +190,7 @@ async def download_company_files(
             output_path = company_folder / filename
 
             # Always download and overwrite (user decision)
-            task = asyncio.create_task(
-                download_file(url, output_path, session, semaphore)
-            )
+            task = asyncio.create_task(download_file(url, output_path, session, semaphore))
             tasks.append(task)
         except ValueError as e:
             logger.error("Skipping URL %s: %s", url, e)
@@ -206,13 +205,13 @@ async def download_company_files(
 
 
 async def download_all_files(
-    results: list[tuple[str, list[str]]],
+    results: list[tuple[str, str, list[str]]],
     output_root: Path,
 ) -> dict:
     """Download files for all companies in parallel.
 
     Args:
-        results: List of (company_name, urls) tuples
+        results: List of (company_name, company_hash, urls) tuples
         output_root: Root output directory
 
     Returns:
@@ -228,10 +227,11 @@ async def download_all_files(
 
     async with aiohttp.ClientSession() as session:
         tasks = []
-        for company_name, urls in results:
+        for company_name, company_hash, urls in results:
             task = asyncio.create_task(
                 download_company_files(
                     company_name,
+                    company_hash,
                     urls,
                     output_root,
                     semaphore,
