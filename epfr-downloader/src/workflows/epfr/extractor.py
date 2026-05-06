@@ -65,7 +65,6 @@ def _detect_ooxml_type(archive_path: Path) -> str | None:
             if "[Content_Types].xml" not in names:
                 return None
 
-            # Check for specific document types
             for marker, ext in OOXML_EXTENSION_MAP.items():
                 if marker in names:
                     return ext
@@ -106,7 +105,6 @@ def extract_tar(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
     """
     name_lower = str(archive_path).lower()
 
-    # Determine mode based on extension
     if name_lower.endswith(".tar.gz") or name_lower.endswith(".tgz") or name_lower.endswith(".gz"):
         tf = tarfile.open(archive_path, "r:gz")
     else:
@@ -140,11 +138,9 @@ def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str
         parent_dir = archive_path.parent
         filename_lower = archive_path.name.lower()
 
-        # Check if this is a ZIP that's actually an OOXML document
         if filename_lower.endswith(".zip"):
             ooxml_ext = _detect_ooxml_type(archive_path)
             if ooxml_ext:
-                # Rename to correct extension instead of extracting
                 new_name = archive_path.stem + ooxml_ext
                 new_path = parent_dir / new_name
                 if new_path.exists():
@@ -177,7 +173,6 @@ def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str
                 for item in source_dir.iterdir():
                     if item.is_dir():
                         move_files_recursive(item)
-                        # Remove empty directory after processing
                         shutil.rmtree(item, ignore_errors=True)
                     else:
                         dest = parent_dir / item.name
@@ -188,24 +183,21 @@ def extract_archive(archive_path: Path) -> tuple[bool, str | None, int, list[str
 
             move_files_recursive(temp_dir)
 
-            # Remove archive file - extraction successful
             archive_path.unlink()
 
-            # Clean up temp dir
             shutil.rmtree(temp_dir, ignore_errors=True)
 
             logger.info("Extracted %s: %d files (flattened)", archive_path, len(final_files))
             return (True, None, len(final_files), final_files)
 
-        except Exception as e:
-            # Clean up temp dir on error
+        except Exception as exc:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            error = f"{type(e).__name__}: {e}"
+            error = f"{type(exc).__name__}: {exc}"
             logger.error("Failed to extract %s: %s", archive_path, error)
             return (False, error, 0, [])
 
-    except Exception as e:
-        error = f"{type(e).__name__}: {e}"
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
         logger.error("Unexpected error processing %s: %s", archive_path, error)
         return (False, error, 0, [])
 
@@ -233,7 +225,6 @@ async def extract_unp_archives(
         logger.warning("UNP folder does not exist: %s", folder_path)
         return (unp, 0, 0, [], 0, [], {})
 
-    # Find all archive files in folder
     archive_files = [f for f in folder_path.iterdir() if f.is_file() and is_archive(f.name)]
 
     if not archive_files:
@@ -252,15 +243,14 @@ async def extract_unp_archives(
 
     success = sum(1 for suc, _, _, _ in results if suc)
     failure = sum(1 for suc, _, _, _ in results if not suc)
-    failed_archives = [str(archive_files[i]) for i, (suc, _, _, _) in enumerate(results) if not suc]
+    failed_archives = [str(archive_files[index]) for index, (suc, _, _, _) in enumerate(results) if not suc]
     files_extracted = sum(count for _, _, count, _ in results)
     all_extracted_files = [name for _, _, _, names in results for name in names]
 
-    # Build archive -> extracted files mapping
     archive_to_files: dict[str, list[str]] = {}
-    for i, (suc, _, _, names) in enumerate(results):
+    for index, (suc, _, _, names) in enumerate(results):
         if suc and names:
-            archive_to_files[archive_files[i].name] = names
+            archive_to_files[archive_files[index].name] = names
 
     logger.info(
         "Extracted %d files from %d archives for %s (%d failed)",
@@ -300,7 +290,6 @@ async def extract_all_archives(
 
     unp_results = await asyncio.gather(*tasks)
 
-    # Aggregate statistics
     stats: dict = {
         "total_unps": len(unp_results),
         "total_archives": 0,
