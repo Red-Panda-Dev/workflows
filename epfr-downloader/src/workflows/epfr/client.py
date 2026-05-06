@@ -24,6 +24,7 @@ from .config import (
     DOWNLOAD_RETRIES,
     DOWNLOAD_TIMEOUT,
     FILE_DOWNLOAD_URL_TEMPLATE,
+    MAX_CONCURRENT_DOWNLOADS,
     MAX_RETRIES,
     RETRY_BACKOFF_BASE,
     RETRY_BACKOFF_MAX,
@@ -35,7 +36,10 @@ logger = logging.getLogger(__name__)
 
 
 def build_page_url(page_no: int, date_from: str) -> str:
-    """Build the EPFR API URL for a given page and date filter.
+    """Build the EPFR dividend disclosure search URL.
+
+    Keeps EPFR's zero-based pagination and configured dividend search filters
+    in one place so workflow activities call the upstream API consistently.
 
     Args:
         page_no: Zero-based page number.
@@ -56,7 +60,10 @@ def build_page_url(page_no: int, date_from: str) -> str:
 
 
 def build_download_url(record_id: int) -> str:
-    """Build file download URL from record ID.
+    """Build the raw file-content download URL for a disclosure record.
+
+    EPFR stores disclosure attachments behind record-specific portal URLs;
+    downloaded bytes are later grouped by company UNP.
 
     Args:
         record_id: EPFR record ID.
@@ -73,9 +80,10 @@ async def fetch_page(
     date_from: str,
     timeout: int = 60,
 ) -> EpfrApiResponse:
-    """Fetch a single page from the EPFR API.
+    """Fetch one EPFR disclosure page with transient-error retries.
 
-    Retries on transient errors (5xx, timeouts) with exponential backoff.
+    Retrieves dividend disclosure metadata from the upstream securities-market
+    endpoint and normalizes the response into local Pydantic models.
 
     Args:
         session: Shared aiohttp session.
@@ -141,10 +149,11 @@ async def download_file(
     company_dir: Path,
     semaphore: asyncio.Semaphore,
 ) -> tuple[int, bool, str | None, str]:
-    """Download a single file from the EPFR portal.
+    """Download one EPFR disclosure attachment into a company folder.
 
-    Streams content, detects file extension from magic bytes in the first
-    chunk, writes atomically via temp file + rename.
+    Streams raw portal bytes, detects the extension from the first chunk, and
+    writes through a temporary file so partial downloads are never exposed as
+    final business artifacts.
 
     Args:
         session: Shared aiohttp session.
@@ -252,7 +261,11 @@ async def download_all_files(
     records: list[EpfrRecord],
     output_dir: Path,
 ) -> dict:
-    """Download files for all records, grouped by holder UNP.
+    """Download all disclosure attachments grouped by company UNP.
+
+    Each EPFR record is routed to the holder UNP when present, falling back to
+    the issuer organization UNP, matching the mapping layout consumed by later
+    extraction and conversion stages.
 
     Args:
         records: List of EpfrRecord objects from the API.
@@ -265,8 +278,6 @@ async def download_all_files(
         - file_map: {record_id: filename} for successful downloads
         - by_unp: {unp: {success, failed, files: [{id, filename}]}}
     """
-    from .config import MAX_CONCURRENT_DOWNLOADS
-
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
 
     grouped: dict[str, list[EpfrRecord]] = {}
@@ -330,7 +341,15 @@ async def download_all_files(
 
 
 def _get_unp(record: EpfrRecord) -> str:
-    """Extract holder UNP from a record, falling back to organization UNP."""
+    """Return the company UNP used for output grouping.
+
+    Args:
+        record: EPFR disclosure record with optional holder and organization.
+
+    Returns:
+        Holder UNP when present, organization UNP as fallback, otherwise
+        ``"unknown"`` for records that cannot be attributed.
+    """
     if record.holder and record.holder.unp:
         return record.holder.unp
     if record.organization and record.organization.unp:
