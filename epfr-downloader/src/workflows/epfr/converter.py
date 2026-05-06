@@ -30,9 +30,9 @@ def _table_to_md(table) -> str:
         Markdown table text preserving row and cell content.
     """
     md_lines = []
-    for i, row in enumerate(table.rows):
+    for row_index, row in enumerate(table.rows):
         cells = [cell.text.strip() for cell in row.cells]
-        if i == 0:
+        if row_index == 0:
             md_lines.append("|" + "|".join(cells) + "|")
             md_lines.append("|" + "|".join("-" for _ in cells) + "|")
         else:
@@ -82,20 +82,17 @@ def _extract_doc(file_path: Path) -> str:
     Raises:
         ValueError: If no extraction strategy can read the file.
     """
-    # Try 1: python-docx (for .docx files mislabeled as .doc)
     try:
         doc = Document(str(file_path))
         return "\n".join([p.text for p in doc.paragraphs])
     except Exception:
         pass
 
-    # Try 2: docx2txt
     try:
         return docx2txt.process(file_path)
     except Exception:
         pass
 
-    # Try 3: antiword/catdoc subprocess extraction for binary .doc
     for tool_name in ("antiword", "catdoc"):
         tool_path = shutil.which(tool_name)
         if not tool_path:
@@ -117,7 +114,6 @@ def _extract_doc(file_path: Path) -> str:
             logger.debug("Extracted %s with %s", file_path, tool_name)
             return result.stdout
 
-    # Try 4: Raw binary reading with common encodings
     try:
         raw = file_path.read_bytes()
         for encoding in ["utf-8", "cp1251", "cp1252", "iso-8859-1", "utf-16"]:
@@ -126,8 +122,8 @@ def _extract_doc(file_path: Path) -> str:
             except UnicodeDecodeError:
                 continue
         return raw.decode("utf-8", errors="replace")
-    except Exception as e:
-        raise ValueError(f"Failed to extract text from {file_path}: {e}") from e
+    except Exception as exc:
+        raise ValueError(f"Failed to extract text from {file_path}: {exc}") from exc
 
 
 def _extract_xls(file_path: Path) -> str:
@@ -144,14 +140,12 @@ def _extract_xls(file_path: Path) -> str:
 
     md_lines = []
 
-    # Header row
     if sheet.nrows > 0:
         headers = [str(cell.value).strip() for cell in sheet.row(0)]
         if headers:
             md_lines.append("|" + "|".join(headers) + "|")
             md_lines.append("|" + "|".join("-" for _ in headers) + "|")
 
-    # Data rows
     for row_idx in range(1, sheet.nrows):
         row_data = [str(cell.value).strip() if cell.value else "" for cell in sheet.row(row_idx)]
         md_lines.append("|" + "|".join(row_data) + "|")
@@ -177,13 +171,11 @@ def _extract_xlsx(file_path: Path) -> str:
     if not rows:
         return ""
 
-    # Header row
     headers = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
     if headers:
         md_lines.append("|" + "|".join(headers) + "|")
         md_lines.append("|" + "|".join("-" for _ in headers) + "|")
 
-    # Data rows
     for row in rows[1:]:
         row_data = [str(cell).strip() if cell is not None else "" for cell in row]
         md_lines.append("|" + "|".join(row_data) + "|")
@@ -230,8 +222,8 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> tuple[bool, 
         logger.debug("Converted %s to %s", file_path, md_path)
         return (True, content, None, md_path)
 
-    except Exception as e:
-        error_msg = f"{type(e).__name__}: {e}"
+    except Exception as exc:
+        error_msg = f"{type(exc).__name__}: {exc}"
         logger.error("Failed to convert %s: %s", file_path, error_msg)
         return (False, None, error_msg, None)
 
@@ -261,7 +253,6 @@ async def convert_unp_files(
         logger.warning("UNP folder does not exist: %s", folder_path)
         return (unp, 0, 0, [], [])
 
-    # Find convertible files (docx, doc, xls, xlsx - not md or other types)
     convertible_extensions = {".docx", ".doc", ".xls", ".xlsx"}
     files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix.lower() in convertible_extensions]
 
@@ -284,8 +275,8 @@ async def convert_unp_files(
     failure = 0
     failed_files = []
 
-    for i, file_path in enumerate(files):
-        suc, _, err, md_path = results[i]
+    for file_index, file_path in enumerate(files):
+        suc, _, err, md_path = results[file_index]
         if suc:
             success += 1
             if md_path:
@@ -355,7 +346,6 @@ async def convert_all_files(
         stats["failed_files"].extend(failed_files)
         all_converted_pairs.extend(converted_pairs)
 
-    # Cleanup source files after successful conversion
     if cleanup_source and all_converted_pairs:
         for source_path, md_path in all_converted_pairs:
             if md_path.exists():
@@ -363,8 +353,8 @@ async def convert_all_files(
                     source_path.unlink()
                     stats["cleaned_up_files"].append(str(source_path))
                     logger.info("Removed source file after conversion: %s", source_path)
-                except Exception as e:
-                    logger.warning("Failed to remove source file %s: %s", source_path, e)
+                except Exception as exc:
+                    logger.warning("Failed to remove source file %s: %s", source_path, exc)
 
     logger.info(
         "Conversion complete: %d attempted, %d successful, %d failed, %d source files cleaned up",
