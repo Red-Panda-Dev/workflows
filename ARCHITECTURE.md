@@ -2,196 +2,216 @@
 
 ## 1. High-Level Overview
 
-This repository is a Python workspace that hosts a Mistral AI Workflows project for scraping, downloading, extracting, converting, and AI-distilling dividend disclosure records from `centraldepo.by`. The system uses the Cloudflare Browser Rendering API to fetch and parse paginated HTML, groups records by company, downloads archive files (ZIP/TAR/GZ), extracts their contents, converts documents to Markdown (docx/doc/xls via Python libs, PDF via Mistral OCR as base64 data URI), runs AI distillation with Mistral Large to extract structured dividend data, and saves results to JSON (`Observed` — `centraldepo-parser/src/workflows/centraldepo/workflow.py`, `centraldepo-parser/README.md`).
+This repository is a Python monorepo containing two independent background-worker projects that download and process dividend disclosure records published by Belarusian financial regulators. Each project is a standalone Mistral AI Workflows application: it runs a long-lived worker process that polls the Mistral Workflows runtime for jobs, executes durable pipeline steps (activities), and writes structured output to the local filesystem.
 
-The system runs as a background worker process orchestrated by the Mistral Workflows SDK (`mistralai-workflows`). The worker registers workflow definitions with Mistral AI Studio and polls for execution tasks. A separate CLI trigger submits workflow runs to the Mistral platform, which dispatches them to the local worker (`Observed` — `centraldepo-parser/src/discover.py:57-64`, `centraldepo-parser/src/workflows/start.py:38-73`).
+The two projects are fully decoupled — they share no code, no runtime environment, and no data paths. They happen to share the same repository root and a common root-level ruff/ty toolchain configuration. (Observed: separate `pyproject.toml`, `uv.lock`, and `.venv` trees under `centraldepo-parser/` and `epfr-downloader/`; no cross-imports.)
 
-The workspace has two isolated `uv` environments: a root project that provides workspace-wide linting via ruff, and a child project (`centraldepo-parser/`) that holds all runtime code and its own dependencies (`Observed` — root `pyproject.toml`, `centraldepo-parser/pyproject.toml`, separate `uv.lock` and `.venv` at each level).
-
-Evidence anchors: `centraldepo-parser/pyproject.toml`, `centraldepo-parser/src/discover.py`, `centraldepo-parser/src/workflows/centraldepo/workflow.py`, `centraldepo-parser/src/workflows/start.py`, root `pyproject.toml`, root `Makefile`.
+**Evidence anchors:** `centraldepo-parser/pyproject.toml`, `epfr-downloader/pyproject.toml`, `centraldepo-parser/src/discover.py`, `epfr-downloader/src/discover.py`, `pyproject.toml` (root, linting-only), `Makefile` (root, centraldepo-only lint targets), `AGENTS.md`.
 
 ## 2. System Architecture (Logical)
 
-Four logical layers:
+The repository contains five logical layers, mirrored in each project:
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Worker Infrastructure                           │
-│  discover.py                                     │
-│  (auto-discovery, process lifecycle)             │
-├─────────────────────────────────────────────────┤
-│  Workflow Definitions                            │
-│  workflows/<name>/workflow.py                    │
-│  (Mistral workflow + activities)                 │
-├─────────────────────────────────────────────────┤
-│  Domain Logic                                    │
-│  client.py · parser.py · models.py · config.py   │
-│  downloader.py · extractor.py · converter.py     │
-│  ai_distiller.py · prompts/                      │
-│  (HTTP, parsing, data shapes, file I/O, AI)      │
-├─────────────────────────────────────────────────┤
-│  External Integrations                           │
-│  Cloudflare Browser Rendering API                │
-│  Mistral AI Studio (workflow orchestration + OCR)│
-└─────────────────────────────────────────────────┘
+[Mistral Workflows Runtime]
+        │  dispatches jobs / receives results
+        ▼
+[Worker Process]  ← src/discover.py
+  auto-discovers workflow classes, calls workflows.run_worker()
+        │
+        ▼
+[Workflow Orchestration]  ← src/workflows/<project>/workflow.py
+  defines durable workflow class; sequences activities
+        │  calls
+        ▼
+[Activities]  ← src/workflows/<project>/activities.py  (centraldepo)
+              ← inline @workflows.activity() in workflow.py  (epfr)
+  stateless async functions; contain all I/O and env-var access
+        │
+        ▼
+[Support Layer]  ← client.py, parser.py, extractor.py, converter.py,
+                   ai_distiller.py, config.py, models.py, common.py
+  HTTP clients, file parsers, format converters, Pydantic models, config
 ```
 
-- **Worker Infrastructure** scans `src/workflows/` for classes with `__workflows_workflow_def` attribute, registers them, and starts polling via `workflows.run_worker`. Depends on: the Mistral SDK. Does not depend on: domain modules under `centraldepo/` (`Observed` — `discover.py:36`).
-- **Workflow Definitions** are self-contained packages under `src/workflows/`. Each package owns its activities (functions decorated with `@workflows.activity()`) and orchestration. Depends on: Domain Logic within the same package. Does not depend on: other workflow packages (`Inferred` — only one workflow package exists; no cross-package imports observed).
-- **Domain Logic** handles HTTP communication (`client.py`), HTML parsing (`parser.py`), Pydantic models (`models.py`), configuration constants (`config.py`), file downloading (`downloader.py`), archive extraction (`extractor.py`), document-to-Markdown conversion (`converter.py`), and AI distillation (`ai_distiller.py`, `prompts/`). Dependency graph (all `Observed` from import statements):
-  ```
-  config.py    ← (leaf, no intra-package imports)
-  models.py    ← (leaf, no intra-package imports)
-  downloader.py ← (leaf, only stdlib + aiohttp)
-  parser.py    ← config.py, models.py
-  client.py    ← config.py, models.py, parser.py
-  extractor.py ← downloader.py
-  converter.py ← config.py, downloader.py, mistralai plugins
-  ai_distiller.py ← config.py, models.py
-  workflow.py  ← all domain modules
-  ```
-  No circular imports exist.
-- **External Integrations** — the Cloudflare Browser Rendering API (scraping target) and Mistral AI Studio (workflow scheduling + OCR). Not represented by local code; consumed via HTTP and the SDK client respectively.
+**Component responsibilities:**
+
+- **Mistral Workflows Runtime**: external orchestration plane; provides durable execution, retries, and job dispatch. Neither project controls this boundary.
+- **Worker Process** (`discover.py`): scans `src/workflows/` for classes decorated with `@workflows.workflow.define(...)`, then starts `workflows.run_worker()`. This is the only process entrypoint.
+- **Workflow Orchestration** (`workflow.py`): defines the top-level pipeline as an `async def run()` method. Sequences activity calls. Must not access `os.environ` directly (runtime sandbox constraint).
+- **Activities**: units of retryable work annotated with `@workflows.activity()`. All environment variable reads, network I/O, and filesystem operations must live here.
+- **Support Layer**: pure helpers — HTTP clients (`aiohttp`), HTML/document parsers, format converters (docx/xls → markdown), Pydantic data models, AI distillation via Mistral API.
+
+**Boundary:** `centraldepo-parser` and `epfr-downloader` do not import from each other.
+
+### Per-project pipeline shape
+
+**`centraldepo-parser`** — split into two separately invocable workflows:
+1. `centraldepo-collect-assets`: scrape `centraldepo.by` pages → download disclosure files → extract archives → save `centraldepo_dividends.json`.
+2. `centraldepo-distill-dividends`: load that JSON → convert files to markdown → AI-distill structured dividend data via Mistral API → write final JSON.
+
+**`epfr-downloader`** — single workflow:
+- `epfr-files-downloader`: paginate `epfr.gov.by` REST API → download files grouped by company UNP → emit `unp_file_mapping.json`.
 
 ## 3. Code Map (Physical)
 
 ```
 workflows/                          # Repository root
-├── pyproject.toml                  # Root project: ruff config (line-length 120, rules F E W I D B UP C4 SIM PIE T20)
-├── Makefile                        # Workspace-wide lint/refactor/type-check targets against centraldepo-parser/
-├── AGENTS.md                       # Workspace-level conventions and validation commands
-├── .skills/                        # Shared coding policy docs
-│   └── python_docs_and_comments.md # Comment/docstring conventions
-├── .agents/skills/                 # SDK skill references (shared across workspace)
-│   ├── modern-python/
-│   └── workflows/
+├── pyproject.toml                  # Root project: ruff + ty config only (linting-only deps)
+├── Makefile                        # lint/refactor/type-check — centraldepo-parser only
+├── AGENTS.md                       # Repo-level contributor guide and change rules
+├── ARCHITECTURE.md                 # This file
 │
-└── centraldepo-parser/             # Main project — all application code
-    ├── pyproject.toml              # Dependencies: mistralai-workflows, pydantic, aiohttp, etc.
-    ├── Makefile                    # start-worker, execute, installdeps targets
-    ├── AGENTS.md                   # Detailed module map and local change rules
-    ├── README.md                   # Project setup, commands, data model, troubleshooting
-    ├── uv.lock                     # Project-specific lockfile
-    └── src/
-        ├── discover.py             # Scans src/workflows/ for workflow classes, starts worker
-        └── workflows/
-            ├── __init__.py         # Package root for auto-discovery
-            ├── start.py            # CLI to trigger a workflow execution via Mistral client
-            └── centraldepo/        # CentralDepo workflow implementation
-                ├── config.py       # Constants: BASE_URL, SCRAPE_API, SELECTOR, defaults, retry, AI config
-                ├── models.py       # Pydantic models: DividendRecord, ScrapeResult, WorkflowInput/Output, AI models
-                ├── parser.py       # HTML parsing: extract records, group by company
-                ├── client.py       # Cloudflare Browser Rendering HTTP client with retries and circuit breaker
-                ├── downloader.py   # Concurrent file download with retry/backoff per company
-                ├── extractor.py    # Archive extraction (ZIP, TAR, GZ, TGZ) with atomic writes
-                ├── converter.py    # Document-to-Markdown: docx/doc/xls via Python libs, PDF via Mistral OCR
-                ├── ai_distiller.py # AI distillation: Mistral Large structured dividend data extraction
-                ├── prompts/        # Prompt templates for AI distillation
-                │   └── dividends_parsing.md  # Main extraction prompt
-                ├── AGENTS.md       # Pipeline internals, data contracts, activity boundaries, per-file editing rules
-                └── workflow.py     # Mistral workflow class + activities (entry point)
+├── centraldepo-parser/             # Project 1: CentralDepo scraper + AI distiller
+│   ├── pyproject.toml              # Runtime deps: mistralai-workflows, aiohttp, docx, xlrd, bs4
+│   ├── Makefile                    # start-worker, execute, execute-collect-assets, execute-distill-dividends, execute-pipeline
+│   ├── AGENTS.md                   # Project-local module map and invariants
+│   ├── README.md                   # Setup, commands, data model (note: some file refs are stale)
+│   └── src/
+│       ├── discover.py             # Worker entrypoint: auto-discovers + starts Mistral worker
+│       └── workflows/
+│           ├── start.py            # CLI trigger: send workflow execution request
+│           └── centraldepo/
+│               ├── workflow.py     # Two workflow classes: CollectAssets + DistillDividends
+│               ├── activities.py   # All @workflows.activity() decorated pipeline steps
+│               ├── client.py       # aiohttp HTTP client for centraldepo.by
+│               ├── parser.py       # HTML scraping logic (beautifulsoup4 / lxml)
+│               ├── downloader.py   # File download utilities
+│               ├── extractor.py    # Archive extraction
+│               ├── converter.py    # docx/xls/pdf → markdown conversion
+│               ├── ai_distiller.py # Mistral API calls for structured data extraction
+│               ├── common.py       # Shared helpers (URL building, result loading)
+│               ├── config.py       # Constants and env-var reads (inside activity boundary)
+│               ├── models.py       # Pydantic data models
+│               └── prompts/        # Markdown prompt templates for AI distillation
+│                   └── dividends_parsing.md
+│
+├── epfr-downloader/                # Project 2: EPFR API downloader
+│   ├── pyproject.toml              # Runtime deps: mistralai-workflows, aiohttp, pydantic
+│   ├── Makefile                    # start-worker, execute, lint, test
+│   ├── AGENTS.md                   # Project-local module map and invariants
+│   └── src/
+│       ├── discover.py             # Worker entrypoint (identical pattern to centraldepo)
+│       └── workflows/
+│           ├── start.py            # CLI trigger
+│           └── epfr/
+│               ├── workflow.py     # EpfrFilesDownloader workflow + inline activities
+│               ├── client.py       # aiohttp client for epfr.gov.by REST API
+│               ├── detector.py     # File type / format detection utilities
+│               ├── config.py       # Constants and env-var reads
+│               ├── models.py       # Pydantic data models (EpfrRecord, EpfrWorkflowInput, …)
+│               └── tests/          # Unit tests (only epfr-downloader has test coverage)
+│                   ├── test_client.py
+│                   ├── test_detector.py
+│                   └── test_models.py
 ```
 
-Where is X?
-
-| X | Location |
-|---|----------|
-| Lint/format config | Root `pyproject.toml` `[tool.ruff]` |
-| Runtime dependencies | `centraldepo-parser/pyproject.toml` |
-| New workflow | New subpackage under `centraldepo-parser/src/workflows/<name>/` |
-| Scraping logic | `centraldepo-parser/src/workflows/centraldepo/client.py`, `parser.py` |
-| Workflow entry point | `workflow.py` class with `@workflows.workflow.entrypoint` |
-| Worker start | `centraldepo-parser/src/discover.py` |
-| Workflow trigger CLI | `centraldepo-parser/src/workflows/start.py` |
-| File download logic | `centraldepo-parser/src/workflows/centraldepo/downloader.py` |
-| Archive extraction | `centraldepo-parser/src/workflows/centraldepo/extractor.py` |
-| Document conversion | `centraldepo-parser/src/workflows/centraldepo/converter.py` |
-| AI distillation | `centraldepo-parser/src/workflows/centraldepo/ai_distiller.py` |
-| AI prompt template | `centraldepo-parser/src/workflows/centraldepo/prompts/dividends_parsing.md` |
-| Data shapes (Pydantic) | `centraldepo-parser/src/workflows/centraldepo/models.py` |
-| Tuning constants | `centraldepo-parser/src/workflows/centraldepo/config.py` |
+**Output artifacts** (not source; gitignored except JSON):
+- `centraldepo-parser/output/` — per-company subdirectories with downloaded files; `centraldepo_dividends.json` summary.
+- `epfr-downloader/` output dir (configurable via input) — per-UNP directories; `unp_file_mapping.json`.
 
 ## 4. Life of a Request / Primary Data Flow
 
-**Workflow execution path (triggered via Mistral platform):**
+### Worker startup (both projects)
 
-1. **Trigger** — `centraldepo-parser/src/workflows/start.py` parses CLI args (`--workflow`, `--input`), loads `.env`, calls Mistral client to submit a workflow run (`Observed` — `start.py:44-73`).
-2. **Dispatch** — Mistral AI Studio routes the execution to the local worker (`Inferred` — `start-worker` target in `centraldepo-parser/Makefile:8-9`, `discover.py` calls `workflows.run_worker`).
-3. **Discovery** — `centraldepo-parser/src/discover.py` scanned `src/workflows/` at worker startup, found `CentralDepoWorkflow` via `__workflows_workflow_def` attribute, and registered it (`Observed` — `discover.py:36`).
-4. **Workflow entry** — `CentralDepoWorkflow.run()` receives `WorkflowInput` (`Observed` — `workflow.py:501-502`).
-5. **Credentials** — `get_credentials()` activity reads `CF_ACCOUNT_ID` and `CF_API_TOKEN` from environment (sandbox restriction forces this into an activity) (`Observed` — `workflow.py:110-131`).
-6. **Pagination loop** — Pages processed in batches via `scrape_pages_batch()` activity → `CloudflareSessionManager` → `CloudflareClient._make_request()` → HTTP POST to Cloudflare Browser Rendering API → `parse_items()` extracts `DividendRecord` objects from response (`Observed` — `workflow.py:59-107`, `client.py:26-27`).
-7. **Transform** — `transform_to_output()` groups records by company name into `CompanyResult` objects, deduplicates URLs (`Observed` — `parser.py`).
-8. **Persist** — `save_results()` activity writes JSON atomically (temp file + rename) to `output/` (`Observed` — `workflow.py:134-178`).
-9. **Download** — `download_all_results_files()` activity downloads all archive files to MD5-named company folders via `downloader.py` with concurrent streaming and atomic writes (`Observed` — `workflow.py:181-221`).
-10. **Extract** — `extract_all_downloaded_archives()` activity extracts ZIP/TAR/GZ archives via `extractor.py`, renaming extracted files to lowercase and removing the archive (`Observed` — `workflow.py:224-265`).
-11. **Convert** — `convert_all_downloaded_files()` activity converts documents to Markdown: non-PDF via `converter.py` (python-docx, docx2txt, xlrd), PDF via Mistral OCR as base64 data URI (`Observed` — `workflow.py:338-389`). Source files are cleaned up after successful conversion (`CLEANUP_SOURCE_FILES` env var).
-12. **AI Distillation** — `run_ai_data_distillation()` activity processes all MD files through `ai_distiller.py` using Mistral Large `chat.parse_async` with `DividendData` Pydantic model for structured output. Results saved to `ai_distilled.json` (`Observed` — `workflow.py:392-428`).
-13. **Final mapping** — `generate_final_json()` activity creates `final_mapping.json` mapping company folder hashes to company info and MD file paths (`Observed` — `workflow.py:268-335`).
-14. **Return** — `WorkflowOutput` with results list, stats, download_stats, extraction_stats, conversion_stats, and distillation_stats returned to the Mistral platform.
+```
+make start-worker
+  └─► uv run python src/discover.py
+        ├─ load_dotenv()            # reads .env for MISTRAL_API_KEY
+        ├─ discover_workflows()     # scans src/workflows/ for __workflows_workflow_def
+        └─ workflows.run_worker()   # long-running: polls Mistral runtime for jobs
+```
+
+### Triggering a workflow run
+
+```
+make execute input='{"max_pages": 5}'
+  └─► uv run python src/workflows/start.py --workflow <name> --input '{...}'
+        └─ submits execution request to Mistral Workflows runtime
+```
+
+### centraldepo-parser pipeline (two-phase)
+
+**Phase 1 — collect-assets:**
+```
+CentralDepoCollectAssetsWorkflow.run()
+  ├─ scrape_pages_batch()     # HTTP GET centraldepo.by pages, parse HTML → DividendRecord list
+  ├─ save_results()           # write centraldepo_dividends.json
+  ├─ download_all_results_files()   # HTTP GET each disclosure file
+  └─ extract_all_downloaded_archives()  # unzip/unpack archives
+```
+
+**Phase 2 — distill-dividends** (consumes Phase 1 output):
+```
+CentralDepoDistillDividendsWorkflow.run()
+  ├─ convert_all_downloaded_files()  # docx/xls/pdf → markdown text
+  ├─ run_ai_data_distillation()      # Mistral API: extract structured dividends from markdown
+  ├─ save_distillation_results()     # write per-company distilled JSON
+  └─ generate_final_json()           # aggregate mapping JSON
+```
+
+### epfr-downloader pipeline (single workflow)
+
+```
+EpfrFilesDownloader.run()
+  ├─ fetch_all_pages()        # paginate epfr.gov.by REST API → list[EpfrRecord]
+  ├─ download_all_epfr_files()  # HTTP GET each file → output/<UNP>/
+  └─ save_unp_mapping()       # write unp_file_mapping.json (atomic rename via tempfile)
+```
 
 ## 5. Architectural Invariants & Constraints
 
-- **Rule:** All environment variable reads must occur inside `@workflows.activity()` functions, not in the workflow class body.
-  - **Rationale:** The Mistral workflow runtime restricts `os.environ` access in the workflow sandbox.
-  - **Enforcement / Signals (Observed):** `get_credentials()` in `workflow.py:110-131` is an activity specifically for this purpose. `convert_all_downloaded_files` reads `CLEANUP_SOURCE_FILES` inside the activity body.
+- **Rule:** All `os.environ` / `.env` reads must occur inside `@workflows.activity()` functions, never inside workflow class methods.
+  - **Rationale:** The Mistral Workflows runtime sandboxes workflow classes and restricts direct environment access. Violating this causes silent failures or runtime errors.
+  - **Enforcement / Signals (Observed):** Enforced by runtime. Config modules (`config.py`) are imported inside activities, not at workflow class level. `AGENTS.md` documents this constraint explicitly.
 
-- **Rule:** New workflows must be placed in a subpackage under `src/workflows/` with a class decorated by `@workflows.workflow.define(...)`.
-  - **Rationale:** Auto-discovery in `discover.py` scans for the `__workflows_workflow_def` attribute on classes.
-  - **Enforcement / Signals (Observed):** `discover.py:36` checks `hasattr(obj, "__workflows_workflow_def")`.
+- **Rule:** No cross-project imports. `centraldepo-parser` and `epfr-downloader` must not import from each other.
+  - **Rationale:** They are independent projects with separate virtual environments, dependency sets, and deployment lifecycles.
+  - **Enforcement / Signals (Observed):** Separate `uv.lock` and `.venv` trees make cross-import physically impossible at runtime.
 
-- **Rule:** Workflow packages must not import from sibling workflow packages.
-  - **Rationale:** Each workflow is independently discovered and should be self-contained.
-  - **Enforcement / Signals (Inferred):** No cross-package imports observed in `centraldepo/`; convention enforced by isolation, not a build check.
+- **Rule:** New workflow classes must be placed in a subpackage under `src/workflows/` and decorated with `@workflows.workflow.define(...)`.
+  - **Rationale:** `discover.py` scans for the `__workflows_workflow_def` attribute set by that decorator. Workflows placed elsewhere will not be registered with the worker.
+  - **Enforcement / Signals (Observed):** Auto-discovery logic in `src/discover.py` (both projects).
 
-- **Rule:** JSON and file output must use atomic writes (temp file + rename).
-  - **Rationale:** Prevents partial/corrupt output on crash.
-  - **Enforcement / Signals (Observed):** `workflow.py` (`save_results`, `save_distillation_results`, `generate_final_json`), `downloader.py`, and `extractor.py` all use `tempfile.mkstemp` + `os.replace`.
+- **Rule:** The root `Makefile` lint and type-check targets cover `centraldepo-parser/` only. `epfr-downloader/` must be linted via its own `Makefile`.
+  - **Rationale:** The root Makefile hardcodes `centraldepo-parser/` as the lint target. Running `make lint` from root does not validate epfr-downloader.
+  - **Enforcement / Signals (Observed):** Root `Makefile` lint commands explicitly pass `centraldepo-parser/` as path argument.
 
-- **Rule:** Retry/timeout/concurrency constants must live in `config.py`, not be hardcoded elsewhere.
-  - **Rationale:** Centralizes tuning knobs for scraping and AI behavior.
-  - **Enforcement / Signals (Observed):** `config.py` exports all constants; `client.py`, `ai_distiller.py`, `converter.py` import them. Convention, not mechanically enforced.
+- **Rule:** `epfr-downloader` changes require running `make test` before committing; `centraldepo-parser` has no automated tests.
+  - **Rationale:** epfr-downloader includes unit tests under `src/workflows/epfr/tests/`; centraldepo-parser does not.
+  - **Enforcement / Signals (Observed):** `epfr-downloader/Makefile` has a `test` target; centraldepo-parser's does not.
 
-- **Rule:** `config.py` and `models.py` must remain leaf modules with no intra-package imports.
-  - **Rationale:** Prevents circular dependencies; these modules define shared types and constants consumed by all domain modules.
-  - **Enforcement / Signals (Observed):** Neither file contains relative imports from the `centraldepo` package.
+- **Rule:** Each project must be run using its own `uv` virtual environment. Running `uv run` from the wrong directory uses the wrong env.
+  - **Rationale:** Three isolated environments exist: root `.venv` (linting only), `centraldepo-parser/.venv` (runtime), `epfr-downloader/.venv` (runtime). Runtime deps are not installed in root.
+  - **Enforcement / Signals (Observed):** Separate `uv.lock` at each project root; `make start-worker` targets use relative `uv run` from within the project directory.
 
-- **Rule:** Two separate `uv` environments — root for tooling, `centraldepo-parser/` for runtime.
-  - **Rationale:** Linting dependencies (ruff) are isolated from runtime dependencies (mistralai-workflows, aiohttp).
-  - **Enforcement / Signals (Observed):** Separate `pyproject.toml`, `uv.lock`, and `.venv` at each level.
+- **Rule:** Atomic writes should be used for output JSON files to prevent partial reads by downstream consumers.
+  - **Rationale:** Pipeline output files may be large and consumed by subsequent workflow phases or external tools.
+  - **Enforcement / Signals (Observed):** `save_unp_mapping()` in `epfr-downloader` uses `tempfile.mkstemp` + `os.replace`. Inferred as convention for `centraldepo-parser` output; not directly verified in all write paths.
 
-- **Rule:** Files under `centraldepo-parser/.agents/` and root `.agents/skills/` are read-only.
-  - **Rationale:** Contains Mistral SDK reference materials that should not be customized per project.
-  - **Enforcement / Signals (Inferred):** Stated in `centraldepo-parser/AGENTS.md`; no mechanical enforcement.
+- **Rule:** Ruff line-length is 120 characters; rules `F E W I D B UP C4 SIM PIE T20` with `E501 E712` ignored. Both projects must conform.
+  - **Rationale:** Consistent style across the monorepo; enforced in CI via lint targets.
+  - **Enforcement / Signals (Observed):** Root `pyproject.toml` `[tool.ruff]` section; both project `pyproject.toml` files either inherit or restate compatible config.
 
-- **Rule:** Company folder naming uses `hashlib.md5(name.lower())` defined in `downloader.py:get_company_folder_name()`.
-  - **Rationale:** Consistent, filesystem-safe folder names across all pipeline stages.
-  - **Enforcement / Signals (Observed):** `extractor.py`, `converter.py`, `ai_distiller.py`, and `workflow.py` all import `get_company_folder_name` from `downloader.py`.
-
-- **Rule:** All linting passes via `make lint` from the repo root before committing.
-  - **Rationale:** Consistent code style enforced at workspace level.
-  - **Enforcement / Signals (Observed):** Root `Makefile` defines `lint` target running ruff against `centraldepo-parser/`.
-
-- **Rule:** Pipeline activities in `workflow.py` delegate business logic to domain modules, not implement it inline.
-  - **Rationale:** Separation of orchestration from domain logic keeps activities testable and the workflow class a thin coordinator.
-  - **Enforcement / Signals (Inferred):** Convention visible in all activity implementations — they call into domain modules and handle serialization/logging only.
+- **Rule:** Do not edit files under `.agents/` in either project.
+  - **Rationale:** These are read-only Mistral SDK references.
+  - **Enforcement / Signals (Observed):** Documented in `AGENTS.md`; no build target modifies `.agents/`.
 
 ## 6. Documentation Strategy
 
-`ARCHITECTURE.md` (this file) is the global map and invariants document for the repository. It describes the physical layout, logical layers, data flow, and architectural rules that span the entire workspace.
+`ARCHITECTURE.md` (this file) is the global map: it documents the monorepo boundary, the two-project structure, shared conventions, dependency direction, primary data flows, and invariants that span or govern both projects.
 
-Module-level detail lives in:
-- `AGENTS.md` (root) — workspace-wide conventions, ruff config, validation commands.
-- `centraldepo-parser/AGENTS.md` — detailed module map, local change rules, safe modification guidance.
-- `centraldepo-parser/src/workflows/centraldepo/AGENTS.md` — pipeline internals, data contracts, activity boundaries, per-file editing rules.
-- `centraldepo-parser/README.md` — project setup, commands, data model, and troubleshooting.
+Module-level and project-level docs cover local detail:
 
-SDK reference:
-- `centraldepo-parser/.agents/skills/workflows/SKILL.md` — Mistral Workflows SDK reference (read-only).
+- `AGENTS.md` (root) — contributor guide, change rules, validation commands, and gotchas for the whole repo.
+- `centraldepo-parser/AGENTS.md` — project-local module map, activity boundary rules, and change checklist.
+- `centraldepo-parser/src/workflows/centraldepo/AGENTS.md` — pipeline internals, data contracts between pipeline stages, activity boundary details.
+- `centraldepo-parser/README.md` — setup, commands, data model, troubleshooting. Note: references `example.py` and `dev_worker.py` which no longer exist; treat `src/workflows/centraldepo/` as authoritative.
+- `epfr-downloader/AGENTS.md` — EPFR project module map, change rules, and invariants.
+- `.skills/python_docs_and_comments.md` — Python comment and docstring style policy for the workspace.
 
-Comment/docstring conventions:
-- `.skills/python_docs_and_comments.md` — policy for public APIs, handlers, and non-trivial async workflows.
+**What belongs where:**
 
-No tests directory or test documentation exists yet (`Inferred` — `pytest` is listed as a dev dependency in `centraldepo-parser/pyproject.toml` but no test files are present).
-
-**Doc discrepancy note:** `centraldepo-parser/AGENTS.md` and `centraldepo-parser/README.md` reference `example.py` (standalone scraper) and `dev_worker.py` (file watcher), but neither file exists on disk. The pipeline documentation in `centraldepo-parser/src/workflows/centraldepo/AGENTS.md` is the most up-to-date and accurate source for module internals.
+- `ARCHITECTURE.md`: cross-cutting structure, dependency direction, invariants, and the "where is X?" map.
+- Project `AGENTS.md` / `README.md`: per-project setup, commands, module-level responsibilities, and local conventions.
+- Pipeline-level `AGENTS.md` (e.g., `centraldepo/AGENTS.md`): data contracts between pipeline stages, activity-level boundaries, and pipeline-specific gotchas.
