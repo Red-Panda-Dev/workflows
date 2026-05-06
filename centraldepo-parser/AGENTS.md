@@ -21,6 +21,8 @@ src/
         ├── extractor.py       # Archive extraction (ZIP, TAR, GZ, TGZ) with atomic writes
         ├── converter.py       # Document-to-Markdown: docx/doc/xls via Python libs, PDF via Mistral OCR
         ├── ai_distiller.py    # AI distillation: Mistral Large structured extraction of dividend data
+        ├── common.py          # Shared orchestration helpers (URL building, atomic writes, result loading)
+        ├── activities.py      # Shared @workflows.activity() decorated pipeline steps
         ├── prompts/           # Prompt templates for AI distillation
         │   └── dividends_parsing.md  # Main extraction prompt (BYN currency rules, schema definition)
         └── workflow.py        # Mistral workflow + activities (orchestration entry point)
@@ -69,8 +71,9 @@ make type-check
 # Start dev worker (auto-reloads on .py changes)
 make start-worker
 
-# Execute workflow
-make execute workflow=centraldepo-parser input='{"max_pages": 2}'
+# Execute workflows
+make execute-collect-assets input='{"max_pages": 2}'
+make execute-distill-dividends input='{"input_path": "output/centraldepo_dividends.json"}'
 ```
 
 ## Nearby docs

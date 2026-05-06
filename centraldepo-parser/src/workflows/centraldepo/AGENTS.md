@@ -37,9 +37,9 @@ Early termination: batch scraping stops on empty page (end of pagination) or 3+ 
 | `extractor.py` | Archive extraction | `extract_all_archives()`, `is_archive()` |
 | `converter.py` | Document → Markdown conversion | `convert_all_files()`, `process_pdf_files()`, `convert_to_markdown()` |
 | `ai_distiller.py` | AI structured data extraction | `run_ai_distillation()`, `AIDistiller`, `process_single_file()` |
-| `prompts/dividends_parsing.md` | Mistral Large prompt template | Template with `{{REFERENCE_DATE}}` and `{{DOCUMENT_TEXT}}` placeholders |
 | `common.py` | Shared orchestration helpers | `build_page_url()`, `atomic_write_json()`, `load_company_results()` |
 | `activities.py` | Shared workflow activities | all `@workflows.activity()` functions |
+| `prompts/dividends_parsing.md` | Mistral Large prompt template | Template with `{{REFERENCE_DATE}}` and `{{DOCUMENT_TEXT}}` placeholders |
 | `workflow.py` | Orchestration: 2 workflow classes | `CentralDepoCollectAssetsWorkflow`, `CentralDepoDistillDividendsWorkflow` |
 
 ## Data contracts between stages
@@ -87,26 +87,27 @@ generate_final_json()
 
 All functions decorated with `@workflows.activity()` are in `activities.py`:
 
-| Activity | Lines | Env vars read | External calls |
-|----------|-------|---------------|----------------|
-| `scrape_pages_batch` | 59-107 | None | HTTP (centraldepo.by) |
-| `save_results` | 134-178 | None | Filesystem |
-| `download_all_results_files` | 181-221 | None | HTTP (centraldepo.by), Filesystem |
-| `extract_all_downloaded_archives` | 224-265 | None | Filesystem |
-| `convert_all_downloaded_files` | 338-389 | `CLEANUP_SOURCE_FILES` | Mistral OCR API (PDFs), Filesystem |
-| `run_ai_data_distillation` | 392-428 | `MISTRAL_API_KEY` (via `AIDistiller`) | Mistral chat API |
-| `save_distillation_results` | 431-474 | None | Filesystem |
-| `generate_final_json` | 268-335 | None | Filesystem |
+| Activity | Env vars read | External calls |
+|----------|---------------|----------------|
+| `scrape_pages_batch` | None | HTTP (centraldepo.by) |
+| `save_results` | None | Filesystem |
+| `download_all_results_files` | None | HTTP (centraldepo.by), Filesystem |
+| `extract_all_downloaded_archives` | None | Filesystem |
+| `convert_all_downloaded_files` | `CLEANUP_SOURCE_FILES` | Mistral OCR API (PDFs), Filesystem |
+| `run_ai_data_distillation` | `MISTRAL_API_KEY` (via `AIDistiller`) | Mistral chat API |
+| `save_distillation_results` | None | Filesystem |
+| `generate_final_json` | None | Filesystem |
 
 ## Cross-module dependencies
 
 ```
-workflow.py → client.py, parser.py, config.py, models.py, downloader.py, extractor.py, converter.py, ai_distiller.py
+workflow.py → activities.py, client.py, parser.py, config.py, models.py, downloader.py, extractor.py, converter.py, ai_distiller.py, common.py
 client.py   → config.py, models.py, parser.py
 downloader.py → (standalone, imports only stdlib + aiohttp)
 extractor.py → downloader.py (get_company_folder_name)
 converter.py → config.py, downloader.py (get_company_folder_name), mistralai plugins
 ai_distiller.py → config.py, models.py, prompts/dividends_parsing.md
+common.py   → config.py
 ```
 
 No circular imports exist. `config.py` and `models.py` are leaf modules with no intra-package imports.
@@ -161,7 +162,7 @@ No circular imports exist. `config.py` and `models.py` are leaf modules with no 
 - Changes to the extraction schema in `models.py` (especially `DividendData`) must be reflected here.
 
 ### workflow.py
-- `CentralDepoWorkflow.run()`: the main orchestration method. Calls activities in sequence. Do not add business logic here — delegate to domain modules.
+- Two workflow classes: `CentralDepoCollectAssetsWorkflow`, `CentralDepoDistillDividendsWorkflow`. Do not add business logic here — delegate to domain modules.
 - `_build_page_url()`: page 1 = base URL, page 2+ = `?PAGEN_1=<n>`.
 - All env var reads are inside activities (sandbox restriction).
 
