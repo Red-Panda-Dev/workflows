@@ -9,17 +9,28 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from mistralai.client.models import DocumentURLChunk
+from mistralai.workflows.plugins.mistralai import OCRRequest
+from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
+
 from .config import MAX_CONCURRENT_OCR, MAX_PDF_SIZE_BYTES, OCR_MODEL
 
 logger = logging.getLogger(__name__)
 
 
-async def mistralai_ocr(request):
-    """Lazy wrapper to avoid workflows plugin import at module load time."""
-    from mistralai.client.models import DocumentURLChunk
-    from mistralai.workflows.plugins.mistralai import OCRRequest
-    from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
+async def mistralai_ocr(request: OCRRequest | dict[str, str]) -> Any:
+    """Submit an OCR request through the Mistral Workflows plugin.
 
+    Accepts the lightweight dictionary payload used by the EPFR OCR business
+    flow and converts it to the plugin model required by the runtime.
+
+    Args:
+        request: Plugin request model or dictionary with OCR model, document
+            URL, and document name fields.
+
+    Returns:
+        OCR response from the Mistral plugin.
+    """
     if isinstance(request, dict):
         request = OCRRequest(
             model=request["model"],
@@ -36,7 +47,19 @@ async def ocr_pdf_to_markdown(
     pdf_path: Path,
     overwrite: bool = True,
 ) -> tuple[bool, Path | None, str | None]:
-    """OCR-convert a PDF file to markdown using Mistral OCR."""
+    """Convert one EPFR PDF disclosure to Markdown with OCR.
+
+    Reads a downloaded PDF, submits it to Mistral OCR as a data URI, and writes
+    a sibling ``.md`` file used by the company mapping.
+
+    Args:
+        pdf_path: Path to the downloaded PDF disclosure.
+        overwrite: Whether an existing Markdown file may be replaced.
+
+    Returns:
+        Tuple of success flag, Markdown path when available, and an error code
+        or message when conversion is skipped or fails.
+    """
     md_path = pdf_path.with_suffix(".md")
     logger.info(f"Starting OCR for PDF: {pdf_path}")
 
@@ -84,6 +107,18 @@ async def _process_pdf_entry(
     entry: dict[str, Any],
     overwrite: bool,
 ) -> tuple[str, dict[str, Any], str, str | None]:
+    """Process a single mapping file entry when it references a PDF.
+
+    Args:
+        unp: Company tax identifier used to locate the PDF folder.
+        output_root: Root directory containing UNP folders.
+        entry: Mapping file entry to inspect and update.
+        overwrite: Whether OCR may replace an existing Markdown file.
+
+    Returns:
+        Tuple of status, updated mapping entry, source PDF path, and optional
+        error details.
+    """
     filename = str(entry.get("filename", ""))
     if not filename.lower().endswith(".pdf"):
         return ("SKIP_NON_PDF", entry, "", None)
@@ -109,7 +144,26 @@ async def ocr_mapping_pdfs(
     cleanup_source: bool = True,
     unps: list[str] | None = None,
 ) -> dict:
-    """OCR-convert PDFs referenced in mapping and update mapping JSON."""
+    """OCR all PDF entries referenced by the UNP mapping file.
+
+    Updates ``unp_file_mapping.json`` in place so successfully OCRed PDF files
+    become Markdown entries while preserving existing extraction lineage.
+
+    Args:
+        output_root: Root folder containing the mapping file and UNP folders.
+        mapping_filename: Mapping JSON filename inside ``output_root``.
+        overwrite: Whether existing Markdown files may be replaced.
+        cleanup_source: Whether source PDFs should be deleted after successful
+            Markdown creation.
+        unps: Optional subset of company UNPs to process.
+
+    Returns:
+        OCR statistics including totals, failures, skipped files, cleanup list,
+        and per-UNP details.
+
+    Raises:
+        FileNotFoundError: If the mapping JSON file does not exist.
+    """
     mapping_path = output_root / mapping_filename
     if not mapping_path.exists():
         raise FileNotFoundError(f"Mapping file not found: {mapping_path}")

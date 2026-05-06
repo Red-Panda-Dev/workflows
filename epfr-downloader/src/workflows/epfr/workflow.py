@@ -14,7 +14,7 @@ from pathlib import Path
 import aiohttp
 import mistralai.workflows as workflows
 
-from .client import download_all_files, fetch_page
+from .client import _get_unp, download_all_files, fetch_page
 from .config import FIRST_PAGE_NO, MAPPING_FILENAME
 from .converter import convert_all_files
 from .extractor import extract_all_archives
@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 
 @workflows.activity()
 async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
-    """Iterate EPFR API pages from 0 up to max_pages, collecting records.
+    """Fetch EPFR dividend disclosure records across paginated API pages.
 
-    Stops early if the API reports `last=True` on any page.
+    Starts at EPFR page zero and stops early when the upstream API marks a page
+    as the last page, limiting work to the requested maximum page count.
 
     Args:
         input: Workflow input with max_pages, date_from, timeout.
@@ -70,7 +71,11 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
 
 @workflows.activity()
 async def download_all_epfr_files(records: list[EpfrRecord], output_dir: str) -> dict:
-    """Download files for all records, organized by holder UNP.
+    """Download disclosure files into UNP-specific output folders.
+
+    Persists the raw EPFR file content for each fetched disclosure so later
+    activities can extract archives, convert office documents, and build the
+    final company-file mapping.
 
     Args:
         records: List of EpfrRecord objects from the API.
@@ -103,10 +108,10 @@ async def download_all_epfr_files(records: list[EpfrRecord], output_dir: str) ->
 
 @workflows.activity()
 async def extract_all_epfr_archives(output_dir: str, download_stats: dict) -> dict:
-    """Extract archives for all downloaded files.
+    """Extract downloaded archives before document conversion.
 
-    Extracts ZIP, TAR, GZ archives. Detects OOXML documents (DOCX, XLSX)
-    disguised as ZIP and renames them instead of extracting.
+    Processes each UNP folder found in download statistics and preserves
+    archive lineage for the final mapping output.
 
     Args:
         output_dir: Root output directory.
@@ -148,10 +153,10 @@ async def extract_all_epfr_archives(output_dir: str, download_stats: dict) -> di
 
 @workflows.activity()
 async def convert_all_epfr_files(output_dir: str, download_stats: dict) -> dict:
-    """Convert document files to Markdown for all UNP folders.
+    """Convert downloaded office documents to Markdown for mapping output.
 
-    Converts .docx, .doc, .xls files to .md. Deletes source files after
-    successful conversion (CentralDepo-identical cleanup).
+    Runs after archive extraction and deletes source office files after a
+    successful conversion so each business document has one final mapping entry.
 
     Args:
         output_dir: Root output directory.
@@ -199,13 +204,12 @@ async def save_unp_mapping(
     extraction_stats: dict,
     conversion_stats: dict,
 ) -> str:
-    """Generate and save JSON mapping of UNP to company info and files.
+    """Generate the UNP-to-company-files mapping artifact.
 
-    Applies CentralDepo-identical cleanup logic:
-    - Successfully extracted archives: removed from mapping, replaced by extracted files
-    - Successfully converted documents: removed from mapping, replaced by .md files
-    - Failed extractions: original archive kept in mapping
-    - Failed conversions: original source file kept in mapping
+    Applies the pipeline lineage rules that make the JSON artifact the final
+    business output: extracted archives are represented by their extracted
+    files, converted office documents are represented by Markdown files, and
+    failed transformations keep the original source file.
 
     Creates output/unp_file_mapping.json with structure:
     {
@@ -229,8 +233,6 @@ async def save_unp_mapping(
     Returns:
         Absolute path to the saved mapping file.
     """
-    from .client import _get_unp
-
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -391,20 +393,20 @@ async def save_unp_mapping(
     "saves them organized by company UNP, and produces a JSON mapping.",
 )
 class EpfrFilesDownloader:
-    """Workflow that fetches paginated records from the EPFR API and downloads files.
+    """Download and normalize EPFR dividend disclosure files by company UNP.
 
-    Steps:
-    1. Iterate API pages (0 to max_pages), collecting disclosure records
-    2. Download files for each record into output/<UNP>/ directories
-    3. Extract archives (ZIP, TAR, GZ) and rename OOXML documents
-    4. Convert documents (DOCX, DOC, XLS) to Markdown
-    5. Save UNP-to-files mapping JSON with lineage tracking
-    6. Return aggregated output with statistics
+    The workflow fetches paginated disclosure metadata, downloads raw file
+    content, extracts archives, converts supported office documents to
+    Markdown, and writes the JSON mapping consumed by downstream processing.
     """
 
     @workflows.workflow.entrypoint
     async def run(self, input: EpfrWorkflowInput) -> EpfrWorkflowOutput:
-        """Main workflow entry point.
+        """Run the complete EPFR download and normalization pipeline.
+
+        Coordinates all side-effectful activities while keeping environment and
+        filesystem access inside workflow activities, as required by the
+        Mistral workflow runtime.
 
         Args:
             input: EpfrWorkflowInput with max_pages, date_from, timeout, output_dir.
@@ -443,8 +445,6 @@ class EpfrFilesDownloader:
 
         unps = set()
         for rec in records:
-            from .client import _get_unp
-
             unps.add(_get_unp(rec))
 
         output = EpfrWorkflowOutput(
