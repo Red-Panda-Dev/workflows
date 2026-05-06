@@ -9,17 +9,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-try:
-    from mistralai.client.models import DocumentURLChunk
-    from mistralai.workflows.plugins.mistralai import OCRRequest
-    from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
-except Exception as exc:  # pragma: no cover - depends on runtime workflow configuration
-    DocumentURLChunk = None
-    OCRRequest = None
-    _mistralai_ocr = None
-    _MISTRALAI_OCR_IMPORT_ERROR = exc
-else:
-    _MISTRALAI_OCR_IMPORT_ERROR = None
+from mistralai.client.models import DocumentURLChunk
+from mistralai.workflows.plugins.mistralai import OCRRequest
+from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
 
 from .config import MAX_CONCURRENT_OCR, MAX_PDF_SIZE_BYTES, OCR_MODEL
 
@@ -40,9 +32,6 @@ async def mistralai_ocr(request: Any) -> Any:
         OCR response from the Mistral plugin.
 
     """
-    if _MISTRALAI_OCR_IMPORT_ERROR is not None:
-        raise RuntimeError("Mistral OCR plugin is unavailable") from _MISTRALAI_OCR_IMPORT_ERROR
-
     if isinstance(request, dict):
         request = OCRRequest(
             model=request["model"],
