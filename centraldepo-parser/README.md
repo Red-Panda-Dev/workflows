@@ -31,7 +31,7 @@ This workflow automates the entire pipeline:
 
 ### Data Output
 The workflow produces:
-- **JSON metadata file** (`output/centraldepo_dividends.json`) — Company names, archive URLs, and statistics
+- **JSON metadata file** (`output/centraldepo_dividends.json`) — Company names, company hashes, archive URLs, and statistics
 - **Company folders** — Each company's downloaded archives stored in `output/<md5_hash>/`
 - **Extracted files** — Archive contents extracted into company folders
 
@@ -133,7 +133,9 @@ centraldepo-parser/
     "results": [
         {
             "company_name": str,    # Company name (original case preserved)
-            "urls": [str]           # Sorted, deduplicated archive URLs
+            "company_hash": str,    # MD5 hash of lowercase company name (folder name)
+            "urls": [str],          # Sorted, deduplicated archive URLs
+            "files": [str]          # Local file names currently present in company folder
         }
     ],
     "stats": {
@@ -197,15 +199,22 @@ make start-worker
 In a separate terminal, trigger a workflow execution by name:
 
 ```bash
-# Basic execution with defaults (10 pages, aiohttp mode)
-make execute workflow=centraldepo-parser
+# Step 1: collect assets (parse pages, download archives, extract files)
+make execute workflow=centraldepo-collect-assets
 
-# Custom configuration with aiohttp mode (default)
-make execute workflow=centraldepo-parser input='{"max_pages": 50, "delay": 2.0, "timeout": 300}'
+# Step 1 with custom scrape configuration
+make execute workflow=centraldepo-collect-assets input='{"max_pages": 50, "delay": 2.0, "timeout": 300}'
 
-# Full custom output path
-make execute workflow=centraldepo-parser \
+# Step 1 with custom output path
+make execute workflow=centraldepo-collect-assets \
   input='{"max_pages": 20, "output_path": "output/dividends_2024.json"}'
+
+# Step 2: convert extracted files to MD and distill dividends
+make execute workflow=centraldepo-distill-dividends
+
+# Step 2 for custom output path from Step 1
+make execute workflow=centraldepo-distill-dividends \
+  input='{"input_path": "output/dividends_2024.json"}'
 ```
 
 ### Development Commands
@@ -227,23 +236,29 @@ uv run python example.py --max-pages 10 --delay 1.0
 
 ### Example 1: Quick Test Run (aiohttp mode - default)
 ```bash
-make execute workflow=centraldepo-parser input='{"max_pages": 2, "timeout": 60}'
+make execute workflow=centraldepo-collect-assets input='{"max_pages": 2, "timeout": 60}'
 ```
 Scrapes first 2 pages with a 60-second timeout using direct HTTP — good for testing configuration.
 
 ### Example 2: Full Collection
 ```bash
-make execute workflow=centraldepo-parser \
+make execute workflow=centraldepo-collect-assets \
   input='{"max_pages": 500, "delay": 2.0, "timeout": 300, "output_path": "output/full_dividends.json"}'
+
+make execute workflow=centraldepo-distill-dividends \
+  input='{"input_path": "output/full_dividends.json"}'
 ```
 Comprehensive scrape with generous timeouts and delays using direct HTTP.
 
 ### Example 3: Incremental Update
 ```bash
 # Check how many pages exist
-make execute workflow=centraldepo-parser input='{"max_pages": 100, "delay": 1.0}'
+make execute workflow=centraldepo-collect-assets input='{"max_pages": 100, "delay": 1.0}'
 # Note the last page with results, then fetch more
-make execute workflow=centraldepo-parser input='{"max_pages": 200, "delay": 2.0}'
+make execute workflow=centraldepo-collect-assets input='{"max_pages": 200, "delay": 2.0}'
+
+# Run conversion and AI distillation on latest collected output
+make execute workflow=centraldepo-distill-dividends input='{"input_path": "output/centraldepo_dividends.json"}'
 ```
 
 ## Performance Characteristics
@@ -358,7 +373,7 @@ Without `antiword` or `catdoc`, binary `.doc` files still fall back to best-effo
 ### Debug Mode
 Enable verbose logging by setting the `LOGLEVEL` environment variable:
 ```bash
-LOGLEVEL=DEBUG make execute workflow=centraldepo-parser input='{"max_pages": 2}'
+LOGLEVEL=DEBUG make execute workflow=centraldepo-collect-assets input='{"max_pages": 2}'
 ```
 
 ## Related Files

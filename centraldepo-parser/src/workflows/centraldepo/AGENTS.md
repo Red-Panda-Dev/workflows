@@ -1,10 +1,17 @@
 # AGENTS.md — CentralDepo Workflow Package
 
-Pipeline internals for the CentralDepo Dividend Parser workflow. Covers data flow between modules, activity boundaries, data contracts, and per-file editing rules.
+Pipeline internals for split CentralDepo workflows. Covers data flow between modules, activity boundaries, data contracts, and per-file editing rules.
 
 ## Pipeline stages
 
-The workflow (`workflow.py`) executes these stages sequentially via Mistral activities:
+Two independent workflows are defined in `workflow.py`:
+
+- `centraldepo-collect-assets`: stages 1-5
+- `centraldepo-distill-dividends`: stages 6-9
+
+Shared activities are defined in `activities.py` and reused by both workflows.
+
+The full pipeline stages are:
 
 1. `scrape_pages_batch` → batches of pages via aiohttp
 2. `transform_to_output` → groups `DividendRecord` objects → `CompanyResult` objects
@@ -23,7 +30,7 @@ Early termination: batch scraping stops on empty page (end of pagination) or 3+ 
 | File | Role | Key exports |
 |------|------|-------------|
 | `config.py` | All constants and tuning knobs | `BASE_URL`, `SELECTOR`, `BATCH_SIZE`, `MAX_CONCURRENT_*`, `AI_MODEL`, retry/timeout defaults |
-| `models.py` | Pydantic data shapes for entire pipeline | `DividendRecord`, `ScrapeResult`, `CompanyResult`, `WorkflowInput`, `WorkflowOutput`, `DividendData`, `SharePayout` |
+| `models.py` | Pydantic data shapes for entire pipeline | `DividendRecord`, `ScrapeResult`, `CompanyResult`, `CollectAssetsInput`, `DistillDividendsInput`, `WorkflowOutput`, `DividendData`, `SharePayout` |
 | `parser.py` | HTML → structured records | `parse_items()`, `transform_to_output()` |
 | `client.py` | HTTP client | `AiohttpClient`, `AiohttpSessionManager`, `CircuitBreaker`, `RateLimiter` |
 | `downloader.py` | Concurrent file download | `download_all_files()`, `get_company_folder_name()`, `get_filename_from_url()` |
@@ -31,7 +38,9 @@ Early termination: batch scraping stops on empty page (end of pagination) or 3+ 
 | `converter.py` | Document → Markdown conversion | `convert_all_files()`, `process_pdf_files()`, `convert_to_markdown()` |
 | `ai_distiller.py` | AI structured data extraction | `run_ai_distillation()`, `AIDistiller`, `process_single_file()` |
 | `prompts/dividends_parsing.md` | Mistral Large prompt template | Template with `{{REFERENCE_DATE}}` and `{{DOCUMENT_TEXT}}` placeholders |
-| `workflow.py` | Orchestration: workflow class + 9 activities | `CentralDepoWorkflow`, all `@workflows.activity()` functions |
+| `common.py` | Shared orchestration helpers | `build_page_url()`, `atomic_write_json()`, `load_company_results()` |
+| `activities.py` | Shared workflow activities | all `@workflows.activity()` functions |
+| `workflow.py` | Orchestration: 2 workflow classes | `CentralDepoCollectAssetsWorkflow`, `CentralDepoDistillDividendsWorkflow` |
 
 ## Data contracts between stages
 
@@ -76,7 +85,7 @@ generate_final_json()
 
 ## Activity boundaries
 
-All functions decorated with `@workflows.activity()` in `workflow.py`:
+All functions decorated with `@workflows.activity()` are in `activities.py`:
 
 | Activity | Lines | Env vars read | External calls |
 |----------|-------|---------------|----------------|
