@@ -1,4 +1,4 @@
-.PHONY: start-worker execute installdeps lint test
+.PHONY: start-worker execute execute-share-payout-exporter installdeps lint test
 
 ## Install dependencies
 installdeps:
@@ -12,6 +12,11 @@ start-worker: installdeps
 ## Usage: make execute input='{"max_pages": 10, "date_from": "2026-03-01"}'
 execute:
 	uv run python src/workflows/start.py --workflow epfr-files-downloader $(if $(input),--input '$(input)',)
+
+## Trigger share payout export workflow
+## Usage: make execute-share-payout-exporter input='{"output_dir": "output"}'
+execute-share-payout-exporter:
+	uv run python src/workflows/start.py --workflow epfr-share-payout-exporter $(if $(input),--input '$(input)',)
 
 ## Run linter
 lint:

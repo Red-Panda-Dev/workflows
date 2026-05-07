@@ -8,11 +8,16 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
+from ..config import AI_DISTILLED_FILENAME, SHARE_PAYOUT_EXPORT_FILENAME
 from ..models import (
     EpfrApiResponse,
     EpfrDividendEntry,
     EpfrFileRecord,
+    EpfrSharePayoutExportInput,
+    EpfrSharePayoutExportOutput,
+    EpfrSharePayoutExportRow,
     EpfrWorkflowInput,
     EpfrWorkflowOutput,
 )
@@ -257,3 +262,138 @@ class TestEpfrDividendEntry:
                     "payment_date": "2025-06-01",
                 }
             )
+
+
+class TestEpfrSharePayoutExportRow:
+    """Tests for the DB-ready export row model."""
+
+    def _make_row(self, **overrides):
+        defaults = dict(
+            share_uuid="abc-123",
+            period_year=2026,
+            period_type="quarterly",
+            period_number=1,
+            amount_per_share=Decimal("46.73"),
+            decision_date=date(2026, 5, 4),
+            record_date=date(2026, 5, 3),
+            payment_date=date(2026, 5, 10),
+        )
+        defaults.update(overrides)
+        return EpfrSharePayoutExportRow(**defaults)
+
+    def test_valid_export_row_creation(self):
+        row = self._make_row()
+        assert row.share_uuid == "abc-123"
+        assert row.period_year == 2026
+        assert row.period_type == "quarterly"
+        assert row.period_number == 1
+        assert row.amount_per_share == Decimal("46.73")
+        assert row.decision_date == date(2026, 5, 4)
+        assert row.record_date == date(2026, 5, 3)
+        assert row.payment_date == date(2026, 5, 10)
+
+    def test_serialization_json_keys(self):
+        row = self._make_row()
+        data = row.model_dump(mode="json")
+        expected_keys = {
+            "share_uuid",
+            "period_year",
+            "period_type",
+            "period_number",
+            "amount_per_share",
+            "decision_date",
+            "record_date",
+            "payment_date",
+        }
+        assert set(data.keys()) == expected_keys
+        assert "unp" not in data
+
+    def test_amount_per_share_serializes_as_string(self):
+        row = self._make_row(amount_per_share=Decimal("46.73"))
+        data = row.model_dump(mode="json")
+        assert data["amount_per_share"] == "46.73"
+        assert isinstance(data["amount_per_share"], str)
+
+    def test_zero_amount_preserved(self):
+        row = self._make_row(amount_per_share=Decimal("0"))
+        data = row.model_dump(mode="json")
+        assert data["amount_per_share"] == "0"
+
+    def test_dates_serialize_as_iso_strings(self):
+        row = self._make_row(
+            decision_date=date(2026, 5, 4),
+            record_date=date(2026, 5, 3),
+            payment_date=date(2026, 5, 10),
+        )
+        data = row.model_dump(mode="json")
+        assert data["decision_date"] == "2026-05-04"
+        assert data["record_date"] == "2026-05-03"
+        assert data["payment_date"] == "2026-05-10"
+
+    def test_invalid_period_type_rejected(self):
+        with pytest.raises(ValidationError):
+            self._make_row(period_type="monthly")
+
+    def test_invalid_period_number_rejected(self):
+        with pytest.raises(ValidationError):
+            self._make_row(period_type="halfyear", period_number=3)
+
+    def test_invalid_date_order_rejected(self):
+        with pytest.raises(ValidationError):
+            self._make_row(
+                decision_date=date(2026, 5, 1),
+                record_date=date(2026, 5, 10),
+                payment_date=date(2026, 5, 15),
+            )
+
+
+class TestEpfrSharePayoutExportInput:
+    """Tests for the share payout export workflow input model."""
+
+    def test_defaults(self):
+        inp = EpfrSharePayoutExportInput()
+        assert inp.output_dir == "output"
+        assert inp.input_filename == AI_DISTILLED_FILENAME
+        assert inp.output_filename == SHARE_PAYOUT_EXPORT_FILENAME
+        assert inp.shares_csv_path is None
+
+    def test_custom_values(self):
+        inp = EpfrSharePayoutExportInput(
+            output_dir="/data",
+            input_filename="custom_in.json",
+            output_filename="custom_out.json",
+            shares_csv_path="/path/to/shares.csv",
+        )
+        assert inp.output_dir == "/data"
+        assert inp.input_filename == "custom_in.json"
+        assert inp.output_filename == "custom_out.json"
+        assert inp.shares_csv_path == "/path/to/shares.csv"
+
+
+class TestEpfrSharePayoutExportOutput:
+    """Tests for the share payout export workflow output model."""
+
+    def test_defaults(self):
+        out = EpfrSharePayoutExportOutput()
+        assert out.output_path == ""
+        assert out.total_companies == 0
+        assert out.total_payouts == 0
+        assert out.matched_payouts == 0
+        assert out.unmatched_payouts == 0
+        assert out.stats == {}
+
+    def test_with_values(self):
+        out = EpfrSharePayoutExportOutput(
+            output_path="/tmp/share_payouts_by_unp.json",
+            total_companies=5,
+            total_payouts=20,
+            matched_payouts=18,
+            unmatched_payouts=2,
+            stats={"by_period": {"annual": 10, "quarterly": 10}},
+        )
+        assert out.output_path == "/tmp/share_payouts_by_unp.json"
+        assert out.total_companies == 5
+        assert out.total_payouts == 20
+        assert out.matched_payouts == 18
+        assert out.unmatched_payouts == 2
+        assert out.stats["by_period"]["annual"] == 10

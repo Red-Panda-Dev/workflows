@@ -9,9 +9,17 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 
-from .config import AI_DISTILLED_FILENAME, AI_FILE_DELAY, AI_MAX_RETRIES, AI_MODEL, AI_TEMPERATURE, MAPPING_FILENAME
+from .config import (
+    AI_DISTILLED_FILENAME,
+    AI_FILE_DELAY,
+    AI_MAX_RETRIES,
+    AI_MODEL,
+    AI_TEMPERATURE,
+    MAPPING_FILENAME,
+    SHARE_PAYOUT_EXPORT_FILENAME,
+)
 
 
 class Holder(BaseModel):
@@ -264,4 +272,75 @@ class EpfrAiDistillerOutput(BaseModel):
     total_files: int = 0
     successful: int = 0
     failed: int = 0
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+class EpfrSharePayoutExportRow(BaseModel):
+    """A payout row model for the DB-ready export.
+
+    Each row represents a single dividend payout matched to a share instrument.
+    The ``unp`` is NOT a field — it is used as the top-level dict key instead.
+    Serialized keys: share_uuid, period_year, period_type, period_number,
+    amount_per_share, decision_date, record_date, payment_date.
+    """
+
+    share_uuid: str
+    period_year: int = Field(..., ge=1990)
+    period_type: PeriodType
+    period_number: int = Field(..., ge=1)
+    amount_per_share: Decimal = Field(..., ge=Decimal("0"), max_digits=20, decimal_places=8)
+    decision_date: date
+    record_date: date
+    payment_date: date
+
+    @field_serializer("amount_per_share", mode="plain")
+    @classmethod
+    def _serialize_amount(cls, v: Decimal) -> str:
+        return str(v)
+
+    @model_validator(mode="after")
+    def validate_period_and_dates(self) -> "EpfrSharePayoutExportRow":
+        """Validate period numbering and date ordering business constraints."""
+        if self.period_type == "annual" and self.period_number != 1:
+            raise ValueError("period_number must be 1 for annual period_type")
+        if self.period_type == "halfyear" and self.period_number not in {1, 2}:
+            raise ValueError("period_number must be 1 or 2 for halfyear period_type")
+        if self.period_type == "quarterly" and self.period_number not in {1, 2, 3, 4}:
+            raise ValueError("period_number must be between 1 and 4 for quarterly period_type")
+        if self.decision_date < self.record_date:
+            raise ValueError("decision_date must be greater than or equal to record_date")
+        if self.payment_date <= self.decision_date:
+            raise ValueError("payment_date must be greater than decision_date")
+        return self
+
+
+class EpfrSharePayoutExportInput(BaseModel):
+    """Configure the share payout export workflow execution."""
+
+    output_dir: str = Field(
+        default="output",
+        description="Root directory containing distilled JSON and export output",
+    )
+    input_filename: str = Field(
+        default=AI_DISTILLED_FILENAME,
+        description="Input distilled JSON filename inside output_dir",
+    )
+    output_filename: str = Field(
+        default=SHARE_PAYOUT_EXPORT_FILENAME,
+        description="Output export JSON filename inside output_dir",
+    )
+    shares_csv_path: str | None = Field(
+        default=None,
+        description="Optional override path for shares CSV; uses config default when None",
+    )
+
+
+class EpfrSharePayoutExportOutput(BaseModel):
+    """Report share payout export totals and output location."""
+
+    output_path: str = ""
+    total_companies: int = 0
+    total_payouts: int = 0
+    matched_payouts: int = 0
+    unmatched_payouts: int = 0
     stats: dict[str, Any] = Field(default_factory=dict)
