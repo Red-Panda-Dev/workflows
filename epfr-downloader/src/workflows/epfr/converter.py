@@ -8,6 +8,7 @@ import asyncio
 import logging
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import docx2txt
@@ -117,16 +118,38 @@ def _extract_doc(file_path: Path) -> str:
             logger.debug("Extracted %s with %s", file_path, tool_name)
             return result.stdout
 
-    try:
-        raw = file_path.read_bytes()
-        for encoding in ["utf-8", "cp1251", "cp1252", "iso-8859-1", "utf-16"]:
-            try:
-                return raw.decode(encoding, errors="replace")
-            except UnicodeDecodeError:
-                continue
-        return raw.decode("utf-8", errors="replace")
-    except Exception as exc:
-        raise ValueError(f"Failed to extract text from {file_path}: {exc}") from exc
+    soffice_path = shutil.which("soffice") or shutil.which("libreoffice")
+    if soffice_path:
+        try:
+            with tempfile.TemporaryDirectory(prefix="epfr-doc-") as temp_dir:
+                result = subprocess.run(
+                    [
+                        soffice_path,
+                        "--headless",
+                        "--convert-to",
+                        "txt:Text",
+                        "--outdir",
+                        temp_dir,
+                        str(file_path),
+                    ],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+
+                if result.returncode == 0:
+                    txt_path = Path(temp_dir) / f"{file_path.stem}.txt"
+                    if txt_path.exists():
+                        text = txt_path.read_text(encoding="utf-8", errors="replace").strip()
+                        if text:
+                            logger.debug("Extracted %s with LibreOffice", file_path)
+                            return text
+        except Exception:
+            pass
+
+    raise ValueError(f"Failed to extract text from {file_path}")
 
 
 def _extract_xls(file_path: Path) -> str:

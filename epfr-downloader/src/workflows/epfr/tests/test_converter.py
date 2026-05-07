@@ -2,6 +2,8 @@
 
 # ruff: noqa: D102
 
+import shutil
+import subprocess
 from pathlib import Path
 
 from ..converter import convert_to_markdown
@@ -59,21 +61,42 @@ class TestConvertToMarkdown:
         assert "Error" in error or "ValueError" in error or "BadZipFile" in error
         assert md_path is None
 
-    def test_invalid_doc_uses_fallback_encoding(self, tmp_path: Path):
-        # Create a file that will trigger raw binary fallback
+    def test_invalid_doc_uses_fallback_encoding(self, tmp_path: Path, monkeypatch):
+        # Binary .doc-like content should fail when no external extractors exist.
         doc_file = tmp_path / "test.doc"
-        # Write some text that can be decoded
-        doc_file.write_bytes("Plain text content".encode("utf-8"))
+        doc_file.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1\x00\x00\x00\x00")
+
+        monkeypatch.setattr(shutil, "which", lambda _name: None)
 
         success, content, error, md_path = convert_to_markdown(doc_file)
 
-        # Should succeed with fallback raw decoding
+        assert success is False
+        assert content is None
+        assert error is not None
+        assert md_path is None
+
+    def test_doc_uses_libreoffice_fallback(self, tmp_path: Path, monkeypatch):
+        doc_file = tmp_path / "legacy.doc"
+        doc_file.write_bytes(b"not-really-doc")
+
+        monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/soffice" if name == "soffice" else None)
+
+        def fake_run(cmd, capture_output, check, text, encoding, errors):
+            assert "--convert-to" in cmd
+            assert "txt:Text" in cmd
+            outdir = Path(cmd[cmd.index("--outdir") + 1])
+            (outdir / "legacy.txt").write_text("Extracted with LibreOffice", encoding="utf-8")
+            return subprocess.CompletedProcess(cmd, 0, stdout="ok", stderr="")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        success, content, error, md_path = convert_to_markdown(doc_file)
+
         assert success is True
-        assert content is not None
-        assert "Plain text content" in content
+        assert error is None
+        assert content == "Extracted with LibreOffice"
         assert md_path is not None
-        assert md_path == tmp_path / "test.md"
-        assert md_path.exists()
+        assert md_path.read_text(encoding="utf-8") == "Extracted with LibreOffice"
 
     def test_invalid_xls_fails_gracefully(self, tmp_path: Path):
         bad_xls = tmp_path / "bad.xls"

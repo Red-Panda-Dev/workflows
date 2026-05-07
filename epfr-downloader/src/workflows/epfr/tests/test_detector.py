@@ -2,6 +2,8 @@
 
 # ruff: noqa: D102
 
+from uuid import UUID
+
 from ..detector import UNKNOWN_EXTENSION, build_filename, detect_file_extension
 
 
@@ -32,6 +34,23 @@ class TestDetectFileExtension:
 
     def test_ole_doc(self):
         assert detect_file_extension(b"\xd0\xcf\x11\xe0\xa1\xb1") == ".doc"
+
+    def test_ole_xls_when_excel_clsid_detected(self, monkeypatch):
+        class Root:
+            clsid = UUID("00020820-0000-0000-c000-000000000046")
+
+        class FakeOleFile:
+            root = Root()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        monkeypatch.setattr("workflows.epfr.detector.olefile.OleFileIO", lambda _stream: FakeOleFile())
+
+        assert detect_file_extension(b"\xd0\xcf\x11\xe0\xa1\xb1") == ".xls"
 
     def test_unknown_bytes(self):
         assert detect_file_extension(b"\x00\x01\x02\x03") == UNKNOWN_EXTENSION
