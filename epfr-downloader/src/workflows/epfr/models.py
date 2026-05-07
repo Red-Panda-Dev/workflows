@@ -148,11 +148,13 @@ class EpfrPdfOcrOutput(BaseModel):
 
 
 PeriodType = Literal["annual", "halfyear", "quarterly"]
+ShareType = Literal["common", "preferred"]
 
 
 class EpfrDividendEntry(BaseModel):
     """Represent one normalized dividend payout extracted from one file."""
 
+    share_type: ShareType
     period_year: int = Field(..., ge=1990)
     period_type: PeriodType
     period_number: int = Field(..., ge=1)

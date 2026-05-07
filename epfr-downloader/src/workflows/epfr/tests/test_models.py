@@ -3,12 +3,15 @@
 # ruff: noqa: D102
 
 import json
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from ..models import (
     EpfrApiResponse,
+    EpfrDividendEntry,
     EpfrFileRecord,
     EpfrWorkflowInput,
     EpfrWorkflowOutput,
@@ -222,3 +225,35 @@ class TestEpfrFileRecord:
         data = rec.model_dump()
         assert data["id"] == 141278
         assert data["filename"] == "141278.pdf"
+
+
+class TestEpfrDividendEntry:
+    """Tests for dividend entry schema validation."""
+
+    def test_accepts_common_share_type(self):
+        entry = EpfrDividendEntry(
+            share_type="common",
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            amount_per_share=Decimal("0.1"),
+            decision_date=date(2025, 5, 1),
+            record_date=date(2025, 4, 1),
+            payment_date=date(2025, 6, 1),
+        )
+        assert entry.share_type == "common"
+
+    def test_rejects_unspecified_share_type(self):
+        with pytest.raises(Exception):  # noqa: B017
+            EpfrDividendEntry.model_validate(
+                {
+                    "share_type": "unspecified",
+                    "period_year": 2025,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.1",
+                    "decision_date": "2025-05-01",
+                    "record_date": "2025-04-01",
+                    "payment_date": "2025-06-01",
+                }
+            )

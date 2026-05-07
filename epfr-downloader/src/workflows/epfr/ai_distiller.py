@@ -4,20 +4,30 @@ import asyncio
 import json
 import logging
 import os
+import random
 import tempfile
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
-from .config import AI_RETRY_BACKOFF_BASE, AI_TIMEOUT
+from .config import (
+    AI_RETRY_BACKOFF_BASE,
+    AI_RETRY_BACKOFF_MAX,
+    AI_RETRY_BACKOFF_MAX_429,
+    AI_RETRY_JITTER_RATIO,
+    AI_TIMEOUT,
+)
 from .models import (
     EpfrAiDistilledCompany,
     EpfrAiDistilledFile,
     EpfrAiDistillerInput,
     EpfrDividendEntry,
     EpfrDividendExtraction,
+    PeriodType,
+    ShareType,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,6 +36,7 @@ _PROMPT_TEMPLATE: str | None = None
 
 
 class _RawDividendEntry(BaseModel):
+    share_type: str | None = None
     period_year: int | None = None
     period_type: str | None = None
     period_number: int | None = None
@@ -97,7 +108,7 @@ class AIDistiller:
         logger.info(f"Starting extraction with retries: file={file_path.name}, max_retries={max_retries}")
         for attempt in range(max_retries):
             try:
-                logger.debug(f"Attempt {attempt + 1}/{max_retries} for {file_path.name}")
+                logger.info(f"AI extraction attempt {attempt + 1}/{max_retries} for {file_path.name}")
                 result = await self.extract(markdown_text)
                 logger.info(f"Extraction succeeded on attempt {attempt + 1} for {file_path.name}")
                 return result
@@ -105,7 +116,8 @@ class AIDistiller:
                 error_str = str(exc).lower() if isinstance(exc, Exception) else "cancellederror"
                 is_retryable = any(s in error_str for s in ("503", "502", "429", "timeout", "overload", "cancelled"))
                 if is_retryable and attempt < max_retries - 1:
-                    wait = AI_RETRY_BACKOFF_BASE ** (attempt + 1)
+                    is_rate_limited = "429" in error_str or "rate limit" in error_str or "rate_limited" in error_str
+                    wait = _compute_retry_wait_seconds(attempt, is_rate_limited=is_rate_limited)
                     logger.warning(
                         f"Retryable error on attempt {attempt + 1}/{max_retries} for {file_path.name}: {type(exc).__name__}: {exc}. Retrying in {wait}s"
                     )
@@ -117,6 +129,16 @@ class AIDistiller:
                 raise RuntimeError(f"AI extraction failed for {file_path}: {type(exc).__name__}: {exc}") from exc
 
         raise RuntimeError(f"Unexpected retry loop completion for {file_path}")
+
+
+def _compute_retry_wait_seconds(attempt: int, *, is_rate_limited: bool) -> float:
+    """Compute capped exponential backoff with jitter for AI retries."""
+    capped_max = AI_RETRY_BACKOFF_MAX_429 if is_rate_limited else AI_RETRY_BACKOFF_MAX
+    base_wait = min(float(AI_RETRY_BACKOFF_BASE ** (attempt + 1)), float(capped_max))
+    jitter_span = base_wait * AI_RETRY_JITTER_RATIO
+    jitter = random.uniform(-jitter_span, jitter_span)
+    wait = base_wait + jitter
+    return max(0.1, round(wait, 2))
 
 
 def _load_prompt_template() -> str:
@@ -156,6 +178,11 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
     decision_date = _parse_iso_date(raw.decision_date)
     record_date = _parse_iso_date(raw.record_date)
     payment_date = _parse_iso_date(raw.payment_date)
+    amount = Decimal(str(raw.amount_per_share)) if raw.amount_per_share is not None else Decimal("0")
+
+    share_type = raw.share_type if raw.share_type in {"common", "preferred"} else "common"
+    if raw.share_type not in {"common", "preferred"}:
+        autofilled.append("share_type")
 
     if decision_date is None:
         base = _parse_iso_date(upload_date) or datetime.now(UTC).date()
@@ -165,13 +192,15 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
         record_date = _shift_months(decision_date, -1)
         autofilled.append("record_date")
     if payment_date is None:
-        payment_date = _shift_months(decision_date, 2)
+        if amount == 0:
+            payment_date = decision_date.fromordinal(decision_date.toordinal() + 1)
+        else:
+            payment_date = _shift_months(decision_date, 2)
         autofilled.append("payment_date")
 
-    period_type = raw.period_type or "annual"
+    period_type = raw.period_type if raw.period_type in {"annual", "halfyear", "quarterly"} else "annual"
     period_number = raw.period_number if raw.period_number is not None else 1
     period_year = raw.period_year if raw.period_year is not None else decision_date.year
-    amount = raw.amount_per_share if raw.amount_per_share is not None else 0
 
     if raw.period_type is None:
         autofilled.append("period_type")
@@ -183,8 +212,9 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
         autofilled.append("amount_per_share")
 
     normalized = EpfrDividendEntry(
+        share_type=cast(ShareType, share_type),
         period_year=period_year,
-        period_type=period_type,
+        period_type=cast(PeriodType, period_type),
         period_number=period_number,
         amount_per_share=amount,
         decision_date=decision_date,
@@ -295,9 +325,9 @@ async def run_ai_distillation(input: EpfrAiDistillerInput) -> dict[str, Any]:
                 )
 
                 autofilled_fields: list[str] = []
-                if raw_extraction.has_dividends:
+                if raw_extraction.dividends:
                     logger.info(
-                        f"  [{company_index}.{file_index}] AI found dividends: {len(raw_extraction.dividends)} entries, comment={raw_extraction.ai_comment!r}"
+                        f"  [{company_index}.{file_index}] AI returned dividend entries: {len(raw_extraction.dividends)}, comment={raw_extraction.ai_comment!r}"
                     )
                     for div_idx, raw_div in enumerate(raw_extraction.dividends):
                         normalized, filled = normalize_and_fill_dividend(raw_div, distilled_file.upload_date)
