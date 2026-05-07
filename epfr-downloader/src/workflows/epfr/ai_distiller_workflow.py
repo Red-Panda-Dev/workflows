@@ -4,7 +4,6 @@ import logging
 
 import mistralai.workflows as workflows
 
-from .ai_distiller import run_ai_distillation
 from .models import EpfrAiDistillerInput, EpfrAiDistillerOutput
 
 logger = logging.getLogger(__name__)
@@ -13,6 +12,10 @@ logger = logging.getLogger(__name__)
 @workflows.activity()
 async def distill_epfr_dividends(input: EpfrAiDistillerInput) -> dict:
     """Run EPFR AI distillation activity over mapped markdown files."""
+    # Lazy import keeps restricted modules (os, random, tempfile) out of the
+    # Temporal sandbox during workflow validation.
+    from .ai_distiller import run_ai_distillation
+
     logger.info(
         f"Activity distill_epfr_dividends invoked: output_dir={input.output_dir}, unps={input.unps}, model={input.model_name}"
     )

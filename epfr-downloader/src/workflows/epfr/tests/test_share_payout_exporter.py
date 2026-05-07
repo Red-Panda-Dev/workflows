@@ -20,13 +20,13 @@ class TestExportConfigDefaults:
         assert config.SHARE_PAYOUT_EXPORT_FILENAME == "share_payouts_by_unp.json"
 
     def test_source_data_csv_is_path(self):
-        assert isinstance(config.SHARES_SOURCE_DATA_CSV, Path)
+        assert isinstance(config.get_shares_source_data_csv(), Path)
 
     def test_source_data_csv_filename(self):
-        assert config.SHARES_SOURCE_DATA_CSV.name == "shares_source_data.csv"
+        assert config.get_shares_source_data_csv().name == "shares_source_data.csv"
 
     def test_source_data_csv_parent_is_repo_root(self):
-        assert config.SHARES_SOURCE_DATA_CSV.parent.name == "workflows"
+        assert config.get_shares_source_data_csv().parent.name == "workflows"
 
 
 class TestLoadShareReferenceIndex:
@@ -414,7 +414,7 @@ class TestRunSharePayoutExport:
                 {"known_unps": {"600073968"}, "ambiguous_keys": set(), "ambiguous_share_kind": 0},
             )
             stats = run_share_payout_export(inp)
-        mock_load.assert_called_once_with(config.SHARES_SOURCE_DATA_CSV)
+        mock_load.assert_called_once_with(config.get_shares_source_data_csv())
         assert stats["matched_payouts"] == 1
 
 

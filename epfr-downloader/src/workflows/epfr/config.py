@@ -51,4 +51,7 @@ PAGE_DELAY = 1.0
 # Share payout export workflow
 SHARE_PAYOUT_EXPORT_WORKFLOW_NAME = "epfr-share-payout-exporter"
 SHARE_PAYOUT_EXPORT_FILENAME = "share_payouts_by_unp.json"
-SHARES_SOURCE_DATA_CSV = Path(__file__).resolve().parents[4] / "shares_source_data.csv"
+
+
+def get_shares_source_data_csv() -> Path:
+    return Path(__file__).resolve().parents[4] / "shares_source_data.csv"

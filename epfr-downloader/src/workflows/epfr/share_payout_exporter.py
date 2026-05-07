@@ -9,7 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from .config import SHARES_SOURCE_DATA_CSV
+from .config import get_shares_source_data_csv
 from .models import EpfrSharePayoutExportInput, EpfrSharePayoutExportRow
 
 
@@ -49,7 +49,7 @@ def load_share_reference_index(csv_path: Path) -> tuple[dict[tuple[str, str], st
 
 def run_share_payout_export(input: EpfrSharePayoutExportInput) -> dict[str, Any]:
     """Read distilled JSON, flatten dividends, match against CSV index, write export file atomically."""
-    csv_path = Path(input.shares_csv_path) if input.shares_csv_path else SHARES_SOURCE_DATA_CSV
+    csv_path = Path(input.shares_csv_path) if input.shares_csv_path else get_shares_source_data_csv()
     index, csv_stats = load_share_reference_index(csv_path)
 
     distilled_path = Path(input.output_dir) / input.input_filename
