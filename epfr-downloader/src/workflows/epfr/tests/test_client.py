@@ -3,7 +3,7 @@
 # ruff: noqa: D102
 
 from ..client import _get_unp, build_download_url, build_page_url
-from ..models import EpfrRecord, Organization
+from ..models import EpfrRecord, Holder
 
 
 class TestBuildPageUrl:
@@ -53,7 +53,7 @@ class TestGetUnp:
         holder_unp: str = "",
         holder_title: str = "",
     ) -> EpfrRecord:
-        holder = Organization(id=1, title=holder_title, unp=holder_unp) if holder_unp or holder_title else None
+        holder = Holder(id=1, title=holder_title, unp=holder_unp) if holder_unp or holder_title else None
         return EpfrRecord(id=1, name="Test", holder=holder)
 
     def test_holder_unp_preferred(self):

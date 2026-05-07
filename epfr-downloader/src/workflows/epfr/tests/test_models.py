@@ -2,6 +2,9 @@
 
 # ruff: noqa: D102
 
+import json
+from pathlib import Path
+
 import pytest
 
 from ..models import (
@@ -16,7 +19,6 @@ SAMPLE_API_RESPONSE = {
         {
             "id": 141278,
             "name": "Выплата дивидендов за I кв. 2026г.",
-            "description": "Выплата дивидендов за 1 квартал 2026 года",
             "storageType": "FILE_SYSTEM",
             "realUploadDate": "2026-05-04 00:00",
             "uploadDate": "2026-05-04 08:54",
@@ -42,7 +44,6 @@ SAMPLE_API_RESPONSE = {
         {
             "id": 141054,
             "name": "Победа ОАО 200100116 Информация о выплате дивидендов за 2025г.",
-            "description": "Документ содержит информацию о выплате дивидендов за 2025г.",
             "storageType": "FILE_SYSTEM",
             "realUploadDate": "2026-04-30 00:00",
             "uploadDate": "2026-04-30 07:10",
@@ -86,6 +87,9 @@ SAMPLE_API_RESPONSE = {
 }
 
 
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
 class TestEpfrApiResponse:
     """Tests for parsing the full API response."""
 
@@ -93,13 +97,7 @@ class TestEpfrApiResponse:
         response = EpfrApiResponse.model_validate(SAMPLE_API_RESPONSE)
         assert len(response.content) == 2
         assert response.total_pages == 50
-        assert response.total_elements == 692
         assert response.last is False
-        assert response.first is True
-        assert response.empty is False
-        assert response.number == 0
-        assert response.size == 14
-        assert response.number_of_elements == 2
 
     def test_first_record_fields(self):
         response = EpfrApiResponse.model_validate(SAMPLE_API_RESPONSE)
@@ -107,11 +105,7 @@ class TestEpfrApiResponse:
 
         assert rec.id == 141278
         assert rec.name == "Выплата дивидендов за I кв. 2026г."
-        assert rec.description == "Выплата дивидендов за 1 квартал 2026 года"
-        assert rec.storage_type == "FILE_SYSTEM"
         assert rec.real_upload_date == "2026-05-04 00:00"
-        assert rec.upload_date == "2026-05-04 08:54"
-        assert rec.sub_category_type == "ANY"
 
     def test_first_record_holder(self):
         response = EpfrApiResponse.model_validate(SAMPLE_API_RESPONSE)
@@ -131,41 +125,33 @@ class TestEpfrApiResponse:
         assert rec.holder.unp == "200100116"
         assert "Победа" in rec.holder.title
 
-    def test_pageable(self):
-        response = EpfrApiResponse.model_validate(SAMPLE_API_RESPONSE)
-
-        assert response.pageable.page_number == 0
-        assert response.pageable.page_size == 14
-        assert response.pageable.offset == 0
-        assert response.pageable.paged is True
-        assert response.pageable.sort.sorted is True
-
     def test_empty_response(self):
         data = {
             "content": [],
-            "pageable": {
-                "sort": {"empty": True, "sorted": False, "unsorted": True},
-                "offset": 0,
-                "pageNumber": 0,
-                "pageSize": 14,
-                "paged": True,
-                "unpaged": False,
-            },
             "last": True,
             "totalPages": 0,
-            "totalElements": 0,
-            "size": 14,
-            "number": 0,
-            "sort": {"empty": True, "sorted": False, "unsorted": True},
-            "first": True,
-            "numberOfElements": 0,
-            "empty": True,
         }
         response = EpfrApiResponse.model_validate(data)
         assert response.content == []
         assert response.last is True
-        assert response.empty is True
-        assert response.total_elements == 0
+        assert response.total_pages == 0
+
+    def test_null_sub_category_type_is_ignored(self):
+        """Regression: API returns subCategoryType=null — must not raise ValidationError."""
+        fixture_path = _FIXTURES_DIR / "epfr_api_response_null_subcategory.json"
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        response = EpfrApiResponse.model_validate(data)
+
+        assert len(response.content) == 14
+        assert response.last is False
+        assert response.total_pages == 257
+
+        # last record has subCategoryType: null in the raw payload
+        last_rec = response.content[13]
+        assert last_rec.id == 136558
+        assert last_rec.holder is not None
+        assert last_rec.holder.unp == "200166738"
 
 
 class TestEpfrWorkflowInput:

@@ -1,7 +1,8 @@
 """Pydantic data models for EPFR workflow.
 
-Models mirror the JSON structure returned by the EPFR API at
+Models define the minimal fields consumed by the workflow from the EPFR API at
 /portal/reporting/securities-market and define workflow I/O shapes.
+Unknown or unused API fields are silently ignored.
 """
 
 from datetime import date
@@ -13,89 +14,39 @@ from pydantic import BaseModel, Field, model_validator
 from .config import AI_DISTILLED_FILENAME, AI_FILE_DELAY, AI_MAX_RETRIES, AI_MODEL, AI_TEMPERATURE, MAPPING_FILENAME
 
 
-class Label(BaseModel):
-    """Represent an EPFR organization label used for issuer classification."""
-
-    id: int
-    name: str
-
-
-class Organization(BaseModel):
-    """Represent a company participating in an EPFR disclosure record."""
+class Holder(BaseModel):
+    """Represent the dividend-report holder (issuer company) from an EPFR record."""
 
     id: int
     title: str
     unp: str = ""
 
 
-class User(BaseModel):
-    """Represent the EPFR portal user who submitted a disclosure."""
-
-    id: int
-    surname: str = ""
-    name: str = ""
-    patronymic: str = ""
-    login: str = ""
-    email: str = ""
-    certificate_id: str | None = Field(default=None, alias="certificateId")
-    roles: list[Any] = Field(default_factory=list)
-    state: bool | None = None
-    phone_number: str | None = Field(default=None, alias="phoneNumber")
-
-    model_config = {"populate_by_name": True}
-
-
 class EpfrRecord(BaseModel):
-    """Represent one dividend disclosure record returned by the EPFR API."""
+    """Represent one dividend disclosure record returned by the EPFR API.
+
+    Only fields actually used by the pipeline are declared; all other API
+    fields (user, organization, subCategoryType, etc.) are ignored by Pydantic.
+    """
 
     id: int
     name: str
-    description: str = ""
-    storage_type: str = Field(default="FILE_SYSTEM", alias="storageType")
     real_upload_date: str = Field(default="", alias="realUploadDate")
-    upload_date: str = Field(default="", alias="uploadDate")
-    user: User | None = None
-    holder: Organization | None = None
-    sub_category_type: str = Field(default="ANY", alias="subCategoryType")
-
-    model_config = {"populate_by_name": True}
-
-
-class SortInfo(BaseModel):
-    """Represent sorting metadata included in paginated EPFR responses."""
-
-    empty: bool = False
-    sorted: bool = True
-    unsorted: bool = False
-
-
-class Pageable(BaseModel):
-    """Represent pagination metadata for EPFR API result pages."""
-
-    sort: SortInfo = Field(default_factory=SortInfo)
-    offset: int = 0
-    page_number: int = Field(default=0, alias="pageNumber")
-    page_size: int = Field(default=14, alias="pageSize")
-    paged: bool = True
-    unpaged: bool = False
+    holder: Holder | None = None
 
     model_config = {"populate_by_name": True}
 
 
 class EpfrApiResponse(BaseModel):
-    """Represent one paginated EPFR securities-market API response."""
+    """Represent one paginated EPFR securities-market API response.
+
+    Only the fields used by the fetching loop are declared; pagination metadata
+    and sort details are ignored.
+    """
 
     content: list[EpfrRecord] = Field(default_factory=list)
-    pageable: Pageable = Field(default_factory=Pageable)
     last: bool = False
     total_pages: int = Field(default=0, alias="totalPages")
-    total_elements: int = Field(default=0, alias="totalElements")
-    size: int = 14
-    number: int = 0
-    sort: SortInfo = Field(default_factory=SortInfo)
-    first: bool = True
-    number_of_elements: int = Field(default=0, alias="numberOfElements")
-    empty: bool = False
 
     model_config = {"populate_by_name": True}
 

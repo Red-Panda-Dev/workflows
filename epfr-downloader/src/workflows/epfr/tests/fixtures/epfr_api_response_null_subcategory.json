@@ -1,0 +1,609 @@
+{
+  "content": [
+    {
+      "id": 137086,
+      "name": "Информация о выплате дивидендов на акции ОАО \"ДСТ № 3\"",
+      "description": "Информация о выплате дивидендов на акции ОАО \"ДСТ № 3\"",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 14:05",
+      "user": {
+        "id": 12732,
+        "surname": "Дуда",
+        "name": "Ирина",
+        "patronymic": "Васильевна",
+        "login": "avest-100325912-4240368a088pb1",
+        "email": "portal@asb.by",
+        "organization": {
+          "id": 2668,
+          "title": "ОТКРЫТОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"СБЕРЕГАТЕЛЬНЫЙ БАНК \"БЕЛАРУСБАНК\"",
+          "unp": "100325912",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 2668,
+        "title": "ОТКРЫТОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"СБЕРЕГАТЕЛЬНЫЙ БАНК \"БЕЛАРУСБАНК\"",
+        "unp": "100325912",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 2586,
+        "title": "Открытое акционерное общество \"Дорожно-строительный трест № 3\"",
+        "unp": "700049607",
+        "shortName": ""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 136958,
+      "name": "Информация о выплате дивидендов на акции ОАО «Рогозницкий крахмальный завод» ",
+      "description": "Информация о выплате дивидендов на акции ОАО «Рогозницкий крахмальный завод»",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 11:42",
+      "user": {
+        "id": 12732,
+        "surname": "Дуда",
+        "name": "Ирина",
+        "patronymic": "Васильевна",
+        "login": "avest-100325912-4240368a088pb1",
+        "email": "portal@asb.by",
+        "organization": {
+          "id": 2668,
+          "title": "ОТКРЫТОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"СБЕРЕГАТЕЛЬНЫЙ БАНК \"БЕЛАРУСБАНК\"",
+          "unp": "100325912",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 2668,
+        "title": "ОТКРЫТОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"СБЕРЕГАТЕЛЬНЫЙ БАНК \"БЕЛАРУСБАНК\"",
+        "unp": "100325912",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 10310,
+        "title": "Открытое акционерное общество \"Рогозницкий крахмальный завод\"",
+        "unp": "500196148",
+        "shortName": "ОАО \"Рогозницкий крахмальный завод\""
+      },
+      "subCategoryType": "QUARTER"
+    },
+    {
+      "id": 136815,
+      "name": "О выплате дивидендов по акциям ОАО \"БЕЛЭНЕРГОРЕМНАЛАДКА\" за 2025 год",
+      "description": "О выплате дивидендов по акциям ОАО \"БЕЛЭНЕРГОРЕМНАЛАДКА\" за 2025 год",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 06:52",
+      "user": {
+        "id": 2404,
+        "surname": "Яцкевич",
+        "name": "Александр",
+        "patronymic": "Джонович",
+        "login": "avest-101000004-3010576a049pb3",
+        "email": "a.yatskevich@depo.by",
+        "organization": {
+          "id": 2163,
+          "title": "Закрытое акционерное общество \"Агрокапитал\"",
+          "unp": "101000004",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 2163,
+        "title": "Закрытое акционерное общество \"Агрокапитал\"",
+        "unp": "101000004",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 9906,
+        "title": "Открытое акционерное общество \"БЕЛЭНЕРГОРЕМНАЛАДКА\"",
+        "unp": "100345505",
+        "shortName": "ОАО \"БЕЛЭНЕРГОРЕМНАЛАДКА\""
+      },
+      "subCategoryType": "QUARTER"
+    },
+    {
+      "id": 137095,
+      "name": "Информация о выплате дивидендов по акциям за 2025 год.",
+      "description": "Информация о выплате дивидендов по акциям открытого акционерного общества \"Бобруйский комбинат хлебопродуктов\" за 2025 год.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 14:29",
+      "user": {
+        "id": 8909,
+        "surname": "Полищук",
+        "name": "Андрей",
+        "patronymic": "Викторович",
+        "login": "avest-700071867-3110581m014pb2",
+        "email": "oaobkhp@yandex.by",
+        "organization": {
+          "id": 3820,
+          "title": "Открытое акционерное общество \"Бобруйский комбинат хлебопродуктов\"",
+          "unp": "700071867",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 3820,
+        "title": "Открытое акционерное общество \"Бобруйский комбинат хлебопродуктов\"",
+        "unp": "700071867",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 3820,
+        "title": "Открытое акционерное общество \"Бобруйский комбинат хлебопродуктов\"",
+        "unp": "700071867",
+        "shortName": ""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 136816,
+      "name": "Пинский мясокомбинат ОАО 200301991 Информация о выплате дивидендов за 2025г.",
+      "description": "Документ содержит информацию о выплате дивидендов за 2025г.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 06:55",
+      "user": {
+        "id": 1260,
+        "surname": "Якубовский",
+        "name": "Сергей",
+        "patronymic": "Александрович",
+        "login": "avest-200062076-3170366c030pb7",
+        "email": "-",
+        "organization": {
+          "id": 1080,
+          "title": "Закрытое акционерное общество \"Траст-Запад\"",
+          "unp": "200062076",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 1080,
+        "title": "Закрытое акционерное общество \"Траст-Запад\"",
+        "unp": "200062076",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 10508,
+        "title": "Открытое акционерное общество \"Пинский мясокомбинат\"",
+        "unp": "200301991",
+        "shortName": "ОАО \"Пинский мясокомбинат\""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 137112,
+      "name": "ГСКБ ОАО 200244964 Информация о выплате дивидендов за 2025г.",
+      "description": "Документ содержит информацию о выплате дивидендов за 2025г.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 16:18",
+      "user": {
+        "id": 1260,
+        "surname": "Якубовский",
+        "name": "Сергей",
+        "patronymic": "Александрович",
+        "login": "avest-200062076-3170366c030pb7",
+        "email": "-",
+        "organization": {
+          "id": 1080,
+          "title": "Закрытое акционерное общество \"Траст-Запад\"",
+          "unp": "200062076",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 1080,
+        "title": "Закрытое акционерное общество \"Траст-Запад\"",
+        "unp": "200062076",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 9779,
+        "title": "Открытое акционерное общество \"Головное специализированное конструкторское бюро (ГСКБ) по комплексу оборудования для микроклимата\"",
+        "unp": "200244964",
+        "shortName": "ОАО \"ГСКБ\""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 137102,
+      "name": "Брестская типография ОАО 200020405 Информация о выплате дивидендов за 2025г.",
+      "description": "Документ содержит информацию о выплате дивидендов за 2025г.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 14:55",
+      "user": {
+        "id": 1260,
+        "surname": "Якубовский",
+        "name": "Сергей",
+        "patronymic": "Александрович",
+        "login": "avest-200062076-3170366c030pb7",
+        "email": "-",
+        "organization": {
+          "id": 1080,
+          "title": "Закрытое акционерное общество \"Траст-Запад\"",
+          "unp": "200062076",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 1080,
+        "title": "Закрытое акционерное общество \"Траст-Запад\"",
+        "unp": "200062076",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 10198,
+        "title": "Открытое акционерное общество \"Брестская типография\"",
+        "unp": "200020405",
+        "shortName": "ОАО \"Брестская типография\""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 137290,
+      "name": "Информация о выплате дивидендов за 2025 год",
+      "description": "ОАО \"Торговый центр\"",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-04-01 12:14",
+      "user": {
+        "id": 12972,
+        "surname": "ПЛЁНКИНА",
+        "name": "ОЛЬГА",
+        "patronymic": "МИХАЙЛОВНА",
+        "login": "oaotz@mail.ru",
+        "email": "oaotz@mail.ru",
+        "organization": {
+          "id": 8646,
+          "title": "Открытое акционерное общество \"Торговый центр\"",
+          "unp": "400004545",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 8646,
+        "title": "Открытое акционерное общество \"Торговый центр\"",
+        "unp": "400004545",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 8646,
+        "title": "Открытое акционерное общество \"Торговый центр\"",
+        "unp": "400004545",
+        "shortName": ""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 137116,
+      "name": "Осташковичи ОАО 400019671 Информация о выплате дивидендов за 2025г.",
+      "description": "Документ содержит информацию о выплате дивидендов за 2025г.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 16:38",
+      "user": {
+        "id": 1260,
+        "surname": "Якубовский",
+        "name": "Сергей",
+        "patronymic": "Александрович",
+        "login": "avest-200062076-3170366c030pb7",
+        "email": "-",
+        "organization": {
+          "id": 1080,
+          "title": "Закрытое акционерное общество \"Траст-Запад\"",
+          "unp": "200062076",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 1080,
+        "title": "Закрытое акционерное общество \"Траст-Запад\"",
+        "unp": "200062076",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 10705,
+        "title": "Открытое акционерное общество \"Осташковичи\"",
+        "unp": "400019671",
+        "shortName": "ОАО \"Осташковичи\""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 137094,
+      "name": "Милейки ОАО 200099951 Информация о выплате дивидендов за 2025г.",
+      "description": "Документ содержит информацию о выплате дивидендов за 2025г.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 14:28",
+      "user": {
+        "id": 1260,
+        "surname": "Якубовский",
+        "name": "Сергей",
+        "patronymic": "Александрович",
+        "login": "avest-200062076-3170366c030pb7",
+        "email": "-",
+        "organization": {
+          "id": 1080,
+          "title": "Закрытое акционерное общество \"Траст-Запад\"",
+          "unp": "200062076",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 1080,
+        "title": "Закрытое акционерное общество \"Траст-Запад\"",
+        "unp": "200062076",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 10195,
+        "title": "Открытое акционерное общество \"Милейки\"",
+        "unp": "200099951",
+        "shortName": "ОАО \"Милейки\""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 136951,
+      "name": "Информация о выплате дивидендов по акциям акционерного общества",
+      "description": "Информация о выплате дивидендов по акциям ОАО \"ТЦ \"Альтенбург\"",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 11:38",
+      "user": {
+        "id": 13159,
+        "surname": "Лужинский",
+        "name": "Артём",
+        "patronymic": "Юрьевич",
+        "login": "luzhinskiy@centraldepo.by",
+        "email": "luzhinskiy@centraldepo.by",
+        "organization": {
+          "id": 1100,
+          "title": "Республиканское унитарное предприятие \"РЕСПУБЛИКАНСКИЙ ЦЕНТРАЛЬНЫЙ ДЕПОЗИТАРИЙ ЦЕННЫХ БУМАГ\"",
+          "unp": "100967318",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 1100,
+        "title": "Республиканское унитарное предприятие \"РЕСПУБЛИКАНСКИЙ ЦЕНТРАЛЬНЫЙ ДЕПОЗИТАРИЙ ЦЕННЫХ БУМАГ\"",
+        "unp": "100967318",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 2684,
+        "title": "Открытое акционерное общество \"Торговый центр \"Альтенбург\"",
+        "unp": "500389437",
+        "shortName": ""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 136940,
+      "name": "Информация о выплате дивидендов на акции ОАО «Пуховичский опытно-экспериментальный завод» ",
+      "description": "Информация о выплате дивидендов на акции ОАО «Пуховичский опытно-экспериментальный завод» ",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 11:20",
+      "user": {
+        "id": 12732,
+        "surname": "Дуда",
+        "name": "Ирина",
+        "patronymic": "Васильевна",
+        "login": "avest-100325912-4240368a088pb1",
+        "email": "portal@asb.by",
+        "organization": {
+          "id": 2668,
+          "title": "ОТКРЫТОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"СБЕРЕГАТЕЛЬНЫЙ БАНК \"БЕЛАРУСБАНК\"",
+          "unp": "100325912",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}, {"id": 2, "name": "Профучастник"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 2668,
+        "title": "ОТКРЫТОЕ АКЦИОНЕРНОЕ ОБЩЕСТВО \"СБЕРЕГАТЕЛЬНЫЙ БАНК \"БЕЛАРУСБАНК\"",
+        "unp": "100325912",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 3370,
+        "title": "Открытое акционерное общество \"Пуховичский опытно-экспериментальный завод\"",
+        "unp": "600043074",
+        "shortName": ""
+      },
+      "subCategoryType": "ANY"
+    },
+    {
+      "id": 136810,
+      "name": "Итоги деятельности ОАО \"Спецпромавтоматика\"",
+      "description": "Аудиторское заключение\nБаланс\nОтчёт о прибылях и убытках\nОтчёт об изменении собственного капитала\nОтчёт о движении собственных средств\nПримечание к балансу\nИнформация об Обществе\nИнформация о выплате дивидендов",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-31 00:00",
+      "uploadDate": "2026-03-31 06:40",
+      "user": {
+        "id": 3207,
+        "surname": "Важинская",
+        "name": "Людмила ",
+        "patronymic": "Петровна",
+        "login": "avest-400063511-4121075h001vf2",
+        "email": "spa.gomel@gmail.com",
+        "organization": {
+          "id": 2946,
+          "title": "Открытое акционерное общество \"Спецпромавтоматика\"",
+          "unp": "400063511",
+          "shortName": "",
+          "address": "",
+          "labels": [{"id": 1, "name": "Эмитент"}],
+          "state": null
+        },
+        "certificateId": null,
+        "roles": [],
+        "state": true,
+        "phoneNumber": null
+      },
+      "organization": {
+        "id": 2946,
+        "title": "Открытое акционерное общество \"Спецпромавтоматика\"",
+        "unp": "400063511",
+        "shortName": ""
+      },
+      "holder": {
+        "id": 2946,
+        "title": "Открытое акционерное общество \"Спецпромавтоматика\"",
+        "unp": "400063511",
+        "shortName": ""
+      },
+      "subCategoryType": "QUARTER"
+    },
+    {
+      "id": 136558,
+      "name": "Информация об акционерном обществе и его деятельности по состоянию",
+      "description": "Документ содержит информацию о выплате дивидендов за 2025 год.",
+      "storageType": "FILE_SYSTEM",
+      "realUploadDate": "2026-03-30 08:39",
+      "uploadDate": "2026-03-30 00:00",
+      "user": {
+        "id": 13339,
+        "surname": "Клецко",
+        "name": "Марина",
+        "patronymic": "Михайловна",
+        "login": "KLECKM212319klm",
+        "email": "plankhp@gaspadar.by",
+        "organization": {
+          "id": 9867,
+          "title": "Открытое акционерное общество \"Барановичский комбинат хлебопродуктов\"",
+          "unp": "200166738",
+          "shortName": "ОАО \"Барановичхлебопродукт\"",
+          "address": "Брестская область г. Барановичи улица 50 лет БССР 21 ",
+          "labels": [{"id": 1, "name": "Эмитент"}],
+          "state": null
+        },
+        "certificateId": "29635867E797AECEEDACA3C0B0EAE9BCFC52956C",
+        "roles": [{"id": 3, "name": "ROLE_USER"}],
+        "state": true,
+        "phoneNumber": "+375297920247"
+      },
+      "organization": {
+        "id": 9867,
+        "title": "Открытое акционерное общество \"Барановичский комбинат хлебопродуктов\"",
+        "unp": "200166738",
+        "shortName": "ОАО \"Барановичхлебопродукт\""
+      },
+      "holder": {
+        "id": 9867,
+        "title": "Открытое акционерное общество \"Барановичский комбинат хлебопродуктов\"",
+        "unp": "200166738",
+        "shortName": "ОАО \"Барановичхлебопродукт\""
+      },
+      "subCategoryType": null
+    }
+  ],
+  "pageable": {
+    "sort": {"empty": false, "sorted": true, "unsorted": false},
+    "offset": 378,
+    "pageNumber": 27,
+    "pageSize": 14,
+    "paged": true,
+    "unpaged": false
+  },
+  "last": false,
+  "totalElements": 3595,
+  "totalPages": 257,
+  "size": 14,
+  "number": 27,
+  "sort": {"empty": false, "sorted": true, "unsorted": false},
+  "first": false,
+  "numberOfElements": 14,
+  "empty": false
+}
