@@ -6,7 +6,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..converter import convert_to_markdown
+from .. import converter
+from ..converter import _table_to_md, convert_to_markdown
 
 
 class TestConvertToMarkdown:
@@ -134,6 +135,20 @@ class TestConvertToMarkdown:
         assert md_path.exists()
         assert "New content" in md_path.read_text()
 
+    def test_cleanup_removes_pipe_only_lines_before_write(self, tmp_path: Path, monkeypatch):
+        doc_file = tmp_path / "cleanup.doc"
+        doc_file.write_bytes(b"placeholder")
+
+        monkeypatch.setattr(converter, "_extract_doc", lambda _path: "Title\n||||\n\nBody")
+
+        success, content, error, md_path = convert_to_markdown(doc_file)
+
+        assert success is True
+        assert error is None
+        assert content == "Title\n\nBody"
+        assert md_path is not None
+        assert md_path.read_text(encoding="utf-8") == "Title\n\nBody"
+
 
 class TestConvertToMarkdownExtensions:
     """Tests for supported file extension handling."""
@@ -160,3 +175,35 @@ class TestConvertToMarkdownExtensions:
         assert success is True
         assert md_path is not None
         assert md_path.name == "TEST.md"
+
+
+class _FakeCell:
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _FakeRow:
+    def __init__(self, cells: list[str]):
+        self.cells = [_FakeCell(cell) for cell in cells]
+
+
+class _FakeTable:
+    def __init__(self, rows: list[list[str]]):
+        self.rows = [_FakeRow(row) for row in rows]
+
+
+def test_table_to_md_flattens_ragged_border_columns():
+    table = _FakeTable(
+        [
+            ["", "Информация о существенных фактах (событиях, действиях).", ""],
+            ["", "О выплате дивидендов по акциям за 1-й квартал 2026 год:", ""],
+            ["", "Полное наименование акционерного общества", 'Открытое акционерное общество "Объединение "Лотос"', ""],
+            ["", "", "", ""],
+        ]
+    )
+
+    assert _table_to_md(table) == (
+        "Информация о существенных фактах (событиях, действиях).\n"
+        "О выплате дивидендов по акциям за 1-й квартал 2026 год:\n"
+        'Полное наименование акционерного общества | Открытое акционерное общество "Объединение "Лотос"'
+    )

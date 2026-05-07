@@ -40,6 +40,24 @@ async def test_ocr_pdf_to_markdown_success(monkeypatch: pytest.MonkeyPatch, tmp_
 
 
 @pytest.mark.anyio
+async def test_ocr_pdf_to_markdown_removes_image_placeholders(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    pdf_path = tmp_path / "images.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4 test")
+
+    async def _fake_ocr(_request):
+        return _FakeOcrResult([_FakePage("Title\n\n![img-0.jpeg](img-0.jpeg)\n\nBody")])
+
+    monkeypatch.setattr(pdf_ocr, "mistralai_ocr", _fake_ocr)
+
+    success, md_path, err = await pdf_ocr.ocr_pdf_to_markdown(pdf_path)
+
+    assert success is True
+    assert err is None
+    assert md_path is not None
+    assert md_path.read_text(encoding="utf-8") == "Title\n\nBody"
+
+
+@pytest.mark.anyio
 async def test_ocr_pdf_to_markdown_missing_file(tmp_path: Path):
     success, md_path, err = await pdf_ocr.ocr_pdf_to_markdown(tmp_path / "missing.pdf")
     assert success is False

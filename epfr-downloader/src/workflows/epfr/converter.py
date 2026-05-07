@@ -16,6 +16,8 @@ import openpyxl
 import xlrd
 from docx import Document
 
+from .markdown_cleanup import clean_markdown_text
+
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_CONVERSIONS = 5
@@ -31,14 +33,29 @@ def _table_to_md(table) -> str:
         Markdown table text preserving row and cell content.
 
     """
-    md_lines = []
-    for row_index, row in enumerate(table.rows):
+    normalized_rows: list[list[str]] = []
+
+    for row in table.rows:
         cells = [cell.text.strip() for cell in row.cells]
-        if row_index == 0:
-            md_lines.append("|" + "|".join(cells) + "|")
-            md_lines.append("|" + "|".join("-" for _ in cells) + "|")
-        else:
-            md_lines.append("|" + "|".join(cells) + "|")
+
+        while cells and not cells[0]:
+            cells.pop(0)
+        while cells and not cells[-1]:
+            cells.pop()
+
+        if cells:
+            normalized_rows.append(cells)
+
+    if not normalized_rows:
+        return ""
+
+    unique_widths = {len(row) for row in normalized_rows}
+    if len(unique_widths) != 1 or next(iter(unique_widths)) == 1:
+        return "\n".join(" | ".join(row) for row in normalized_rows)
+
+    md_lines = ["|" + "|".join(normalized_rows[0]) + "|", "|" + "|".join("-" for _ in normalized_rows[0]) + "|"]
+    for row in normalized_rows[1:]:
+        md_lines.append("|" + "|".join(row) + "|")
     return "\n".join(md_lines)
 
 
@@ -240,6 +257,8 @@ def convert_to_markdown(file_path: Path, overwrite: bool = True) -> tuple[bool, 
             content = _extract_xlsx(file_path)
         else:
             return (False, None, f"Unsupported extension: {ext}", None)
+
+        content = clean_markdown_text(content)
 
         # Write MD file
         md_path = file_path.with_suffix(".md")

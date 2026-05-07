@@ -14,6 +14,7 @@ from mistralai.workflows.plugins.mistralai import OCRRequest
 from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
 
 from .config import MAX_CONCURRENT_OCR, MAX_PDF_SIZE_BYTES, OCR_MODEL
+from .markdown_cleanup import clean_markdown_text
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ async def ocr_pdf_to_markdown(
         }
         logger.debug(f"Sending OCR request: model={OCR_MODEL}, document={pdf_path.name}")
         result = await mistralai_ocr(request)
-        ocr_text = "\n\n".join(page.markdown for page in result.pages)
+        ocr_text = clean_markdown_text("\n\n".join(page.markdown for page in result.pages))
         logger.debug(f"OCR response received: pages={len(result.pages)}, chars={len(ocr_text)}")
 
         await asyncio.to_thread(md_path.write_text, ocr_text, "utf-8")
