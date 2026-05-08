@@ -1,4 +1,4 @@
-.PHONY: start-worker execute execute-share-payout-exporter installdeps lint test
+.PHONY: start-worker execute execute-share-payout-exporter installdeps lint test refactor docker-build docker-run
 
 ## Install dependencies
 installdeps:
@@ -34,3 +34,11 @@ test:
 	uv run coverage report --precision=3 --sort=cover --skip-empty --show-missing && \
 	uv run coverage html --precision=3 --skip-empty -d coverage/html/ && \
 	uv run coverage xml -o coverage/coverage.xml
+
+## Build Docker image for EPFR workflow worker
+docker-build:
+	docker build -t epfr-downloader:latest .
+
+## Run Docker container (requires .env with MISTRAL_API_KEY)
+docker-run:
+	docker run -d --name epfr-worker --env-file .env -v "$$(pwd)/output:/app/output" epfr-downloader:latest
