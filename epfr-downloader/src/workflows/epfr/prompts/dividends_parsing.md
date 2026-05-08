@@ -10,11 +10,15 @@ The output is consumed by downstream code, so the JSON shape must be exact and v
 
 You will receive document content as plain markdown text:
 
+```text
 {{DOCUMENT_TEXT}}
+```
 
 You may also receive:
 
+```text
 {{REFERENCE_DATE}}
+```
 
 Use `{{REFERENCE_DATE}}` only as fallback context when the document does not contain enough date information.
 
@@ -71,15 +75,11 @@ Do not output explanations outside JSON.
 
 `has_dividends` means whether the document confirms at least one **positive BYN dividend payout**.
 
-Set `has_dividends = true` only when the document clearly confirms a positive dividend payout or dividend accrual.
+Set `has_dividends = true` only when at least one returned dividend entry has:
 
-Valid confirmations include wording such as:
-
-- decision to pay dividends
-- dividends accrued per share
-- positive dividend amount per one share
-- dividend payment period
-- dividend payment order
+```json
+"amount_per_share": positive_number
+```
 
 Set `has_dividends = false` when:
 
@@ -93,11 +93,13 @@ Set `has_dividends = false` when:
 
 Important:
 
-- If the document explicitly states that dividends are **not paid** or the dividend amount is **0**, this is still important dividend information.
-- In that case, return `has_dividends = false`, but still return one or more `dividends` entries with `amount_per_share = 0` when the decision date, period, or share type can be extracted.
+- Explicit zero or non-payment is still useful dividend information.
+- If the document explicitly states non-payment or zero amount, return `has_dividends = false`, but still return one or more `dividends` entries with `amount_per_share = 0` when a useful dividend entry can be formed.
 - Do not return an empty `dividends` array for explicit zero/non-payment decisions unless no useful dividend entry can be formed.
 
-### Cases with no dividend information
+---
+
+## Cases with no dividend information
 
 If the document does not confirm either:
 
@@ -114,14 +116,22 @@ return:
 }
 ```
 
-### Cases with explicit non-payment or zero dividend
+---
 
-If the document explicitly says dividends are not paid or the amount is zero, return:
+## Cases with explicit non-payment or zero dividend
+
+If the whole document explicitly states dividends are not paid or all dividend amounts are zero, return zero entries when possible.
+
+Do **not** invent a payment date for non-payment decisions.
+
+Use `payment_date = null` unless the document explicitly provides a relevant date that should be stored as the payment deadline.
+
+Example:
 
 ```json
 {
   "has_dividends": false,
-  "ai_comment": "The document explicitly states that dividends are not paid; decision date was extracted.",
+  "ai_comment": "The document explicitly states that dividends are not paid; decision date and period were extracted.",
   "dividends": [
     {
       "share_type": "common",
@@ -131,13 +141,15 @@ If the document explicitly says dividends are not paid or the amount is zero, re
       "amount_per_share": 0,
       "decision_date": "2025-03-28",
       "record_date": null,
-      "payment_date": "2025-03-29"
+      "payment_date": null
     }
   ]
 }
 ```
 
-### `ai_comment`
+---
+
+## `ai_comment`
 
 Write a short explanation in English.
 
@@ -204,13 +216,15 @@ Use:
   - `типы привилегированных акций`
   - `preferred shares`
 
-- When the document gives one general dividend amount without identifying the share type, use `common`.
+- When the document gives one general positive dividend amount without identifying share type, use `common`.
 
-### Multiple share types
+---
 
-Create separate dividend entries when the document gives separate values for simple/common and preferred shares.
+## Multiple share types
 
-Examples:
+Create separate dividend entries when the document gives separate values for common and preferred shares.
+
+Example:
 
 ```text
 - простым акциям: 0,01625 руб.
@@ -218,6 +232,8 @@ Examples:
 ```
 
 Return only the common entry if the preferred amount is dash/empty and does not clearly mean zero.
+
+Example:
 
 ```json
 {
@@ -248,11 +264,18 @@ Return both entries because the preferred zero is explicit:
 ]
 ```
 
-If both common and preferred shares have positive amounts, return both.
+### Important rule for mixed positive + zero share types
+
+If one share type has a positive dividend and another share type has explicit zero amount:
+
+- positive entry: use the extracted or computed payment deadline when available
+- zero entry: set `payment_date = null`, unless the document explicitly provides a separate payment-related date for the zero share type
+
+Reason: a zero dividend is not actually paid, so a general payout deadline for positive dividends should not be blindly copied to the zero-dividend share type.
 
 If common and preferred shares have different payment dates or record dates, preserve the different dates per entry.
 
-If the same decision date, record date, period, and payment date apply to all share types, copy them into each entry.
+If both common and preferred shares have positive amounts and the same decision date, record date, period, and payment date apply to both, copy them into each positive entry.
 
 ---
 
@@ -274,7 +297,7 @@ Rules:
   - decision in 2026 → `period_year = 2025`
 - If `decision_date` is unknown, use document date if visible.
 - If neither is available, use `{{REFERENCE_DATE}}`.
-- If no year can be determined, set `period_year` to the safest available year only if supported by document context; otherwise do not create a dividend entry.
+- If no year can be determined safely, do not create a dividend entry.
 
 Minimum valid year: `1990`.
 
@@ -339,7 +362,7 @@ Examples:
 - `за июль-сентябрь 2026 года` → `quarterly`, `period_number = 3`
 - `за октябрь-декабрь 2026 года` → `quarterly`, `period_number = 4`
 
-If the document says `за 9 месяцев` / `за январь-сентябрь`, map it conservatively to:
+If the document says `за 9 месяцев` or `за январь-сентябрь`, map it conservatively to:
 
 ```json
 {
@@ -348,7 +371,7 @@ If the document says `за 9 месяцев` / `за январь-сентябр
 }
 ```
 
-and explain in `ai_comment` that the cumulative nine-month period was mapped to quarter 3 because the schema does not support a separate nine-month period type.
+Mention in `ai_comment` that the cumulative nine-month period was mapped to quarter 3 because the schema does not support a separate nine-month period type.
 
 ---
 
@@ -356,7 +379,7 @@ and explain in `ai_comment` that the cumulative nine-month period was mapped to 
 
 ### `amount_per_share`
 
-Type: decimal number.
+Type: decimal JSON number.
 
 Constraints:
 
@@ -462,9 +485,11 @@ If a date is missing or cannot be safely normalized, return `null`.
 
 Do not auto-fill missing dates.
 
-Downstream post-processing will fill missing dates when appropriate.
+Downstream post-processing may fill missing dates when appropriate.
 
-### `decision_date`
+---
+
+## `decision_date`
 
 Meaning: the date when the dividend payout or non-payment decision was made.
 
@@ -494,11 +519,11 @@ Rules:
   - use the document date only if the wording clearly implies the document reports a decision made on that date
   - otherwise return `null`
 
-- If the document explicitly says dividends are not paid but the decision date is available, extract it even though `has_dividends = false`.
-
 - If no reliable decision date exists, return `null`.
 
-### `record_date`
+---
+
+## `record_date`
 
 Meaning: shareholder record cutoff date.
 
@@ -527,16 +552,23 @@ Constraint:
 - if extracted, `record_date` must be `<= decision_date` when `decision_date` is known
 - if the only candidate date violates this and the document does not clearly support it as record date, return `null` and mention uncertainty in `ai_comment`
 
-### `payment_date`
+---
+
+## `payment_date`
 
 Meaning: final date or latest deadline by which dividends are paid.
 
-For explicit non-payment or zero-dividend decisions:
+For explicit zero/non-payment decisions:
 
-- if `decision_date` is known, set `payment_date` to `decision_date + 1 day`.
-- if `decision_date` is unknown, return `payment_date = null`.
+- do not invent `payment_date`
+- use `payment_date = null` unless a relevant date is explicitly stated in the document
 
-Extract payment date as follows:
+For mixed documents where one share type has a positive dividend and another has zero:
+
+- use the payment deadline for positive dividend entries
+- keep zero-dividend entries as `payment_date = null` unless the document clearly provides a separate date for that zero entry
+
+Extract payment date for positive dividend entries as follows:
 
 1. If an exact payment date is stated, use it.
 2. If a payment period is stated, use the end date of the period.
@@ -545,14 +577,66 @@ Extract payment date as follows:
 4. If different deadlines apply to different shareholder categories, use the latest final deadline.
    - `в областной бюджет не позднее 22 апреля 2026 года; физическим лицам по 31 мая 2026 года` → `2026-05-31`
 5. If payment is described by a clear formula and the final date can be computed safely, use the final deadline.
-   - Example: `ежемесячно равными долями до 10 числа в течение 3-х месяцев после отчетного периода`
-   - If the reporting period is Q1 2026, the period ends on `2026-03-31`; three months after the reporting period are April, May, June; final deadline is `2026-06-10`.
 6. If the formula is ambiguous or cannot be safely computed, return `null` and explain in `ai_comment`.
 
 Constraint:
 
-- `payment_date` should be later than `decision_date`.
-- If an explicit payment date is equal to or earlier than `decision_date`, and the downstream schema requires `payment_date > decision_date`, return `null` and mention the explicit date in `ai_comment`.
+- `payment_date` for a positive dividend should be later than `decision_date` when `decision_date` is known.
+- If an explicit or computed payment date is equal to or earlier than `decision_date`, return `payment_date = null` and mention the explicit/computed date in `ai_comment`.
+
+---
+
+## Payment formula rules
+
+### Monthly equal payments after a reporting period
+
+For wording such as:
+
+```text
+ежемесячно равными долями до 10 числа в течение 3-х месяцев после отчетного периода
+```
+
+Interpret as:
+
+- payments happen in the calendar months immediately after the reporting period
+- the final payment deadline is the specified day of the final payment month
+
+Formula:
+
+```text
+final payment date = Nth day of the Kth month after the reporting period ends
+```
+
+Where:
+
+- `N` is the day number in wording such as `до 10 числа`
+- `K` is the number of months in wording such as `в течение 3-х месяцев`
+
+Example:
+
+- reporting period: Q1 2026
+- Q1 2026 ends: `2026-03-31`
+- 3 months after the reporting period: April, May, June 2026
+- deadline day: 10
+- final payment deadline: `2026-06-10`
+
+Do **not** add an additional month after the K-month period.
+
+For Q1 2026 and `до 10 числа в течение 3-х месяцев после отчетного периода`, the correct computed payment date is:
+
+```json
+"payment_date": "2026-06-10"
+```
+
+not:
+
+```json
+"payment_date": "2026-07-10"
+```
+
+### Formula cannot override date sanity constraints
+
+If the formula produces a date that is not later than `decision_date`, return `payment_date = null` and explain briefly in `ai_comment`.
 
 ---
 
@@ -638,16 +722,19 @@ return:
 If the document says:
 
 ```text
+О выплате дивидендов по акциям за I квартал 2026 года.
+Дата принятия решения: 20.03.2026, 04.05.2026
 - простым акциям: 46.73 белорусских рублей
 - привилегированным акциям: 0
+Срок выплаты дивидендов по акциям: Ежемесячно равными долями до 10 числа в течение 3-х месяцев после отчетного периода
 ```
 
-return separate entries:
+return:
 
 ```json
 {
   "has_dividends": true,
-  "ai_comment": "Common shares have a positive dividend; preferred shares have an explicit zero amount.",
+  "ai_comment": "Common shares have a positive Q1 2026 dividend; preferred shares have explicit zero amount. Latest listed decision date was used. Payment formula gives final positive payout deadline 2026-06-10.",
   "dividends": [
     {
       "share_type": "common",
@@ -686,7 +773,7 @@ return:
 ```json
 {
   "has_dividends": false,
-  "ai_comment": "The document explicitly states a decision not to pay dividends; decision date was extracted.",
+  "ai_comment": "The document explicitly states a decision not to pay dividends; decision date and period were extracted.",
   "dividends": [
     {
       "share_type": "common",
@@ -696,7 +783,7 @@ return:
       "amount_per_share": 0,
       "decision_date": "2025-03-28",
       "record_date": null,
-      "payment_date": "2025-03-29"
+      "payment_date": null
     }
   ]
 }
@@ -793,18 +880,20 @@ Before returning JSON, verify:
    - `preferred`
 7. No extra fields are present.
 8. Dates are ISO `YYYY-MM-DD` or `null`.
-9. `period_type` is one of:
-   - `annual`
-   - `halfyear`
-   - `quarterly`
-10. `period_number` matches `period_type`.
-11. `amount_per_share` is a non-negative number with no more than 8 decimal places.
-12. The amount is per one share, not a total amount.
-13. Positive dividend currency is BYN or valid generic Belarusian-ruble wording.
-14. Non-BYN positive dividends are not treated as valid.
-15. Explicit zero/non-payment decisions preserve decision date when available.
-16. No missing dates were auto-filled.
-17. `ai_comment` is short and explains any ambiguity.
+9. No missing dates were auto-filled.
+10. `period_type` is one of:
+    - `annual`
+    - `halfyear`
+    - `quarterly`
+11. `period_number` matches `period_type`.
+12. `amount_per_share` is a non-negative JSON number with no more than 8 decimal places.
+13. The amount is per one share, not a total amount.
+14. Positive dividend currency is BYN or valid generic Belarusian-ruble wording.
+15. Non-BYN positive dividends are not treated as valid.
+16. Explicit zero/non-payment decisions preserve decision date when available.
+17. Zero-dividend entries in mixed positive+zero documents do not blindly inherit positive payout deadlines.
+18. Monthly-after-period formulas do not add an extra month beyond the stated number of months.
+19. `ai_comment` is short and explains any ambiguity.
 
 ---
 

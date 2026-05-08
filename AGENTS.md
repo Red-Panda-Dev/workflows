@@ -6,7 +6,7 @@ Python workspace focused on the EPFR pipeline that downloads and processes divid
 
 | Project | Source | Purpose |
 |---------|--------|---------|
-| `epfr-downloader/` | `epfr.gov.by` REST API | Fetch paginated records, download files by UNP, extract, convert, OCR PDFs, AI-distill, produce mapping JSON |
+| `epfr-downloader/` | `epfr.gov.by` REST API | Fetch paginated records, download files by UNP, extract, convert, OCR PDFs, AI-distill, export share payouts, produce mapping JSON |
 
 - **Language:** Python 3.14.3
 - **Package manager:** uv (root for tooling, project env for runtime)
@@ -24,15 +24,17 @@ workflows/                          # Repository root
 ├── pyproject.toml                  # Root project: ruff + ty config (linting-only deps)
 ├── ARCHITECTURE.md                 # Full system code map and invariants
 │
-└── epfr-downloader/                # EPFR API downloader + OCR + AI distiller
-    ├── Makefile                    # start-worker, execute, lint, test
+└── epfr-downloader/                # EPFR API downloader + OCR + AI distiller + share payout exporter
+    ├── Makefile                    # start-worker, execute, lint, test, docker-build, docker-run
     ├── pyproject.toml              # Runtime deps: mistralai-workflows, pydantic, aiohttp, etc.
+    ├── Dockerfile                  # Container image for worker deployment
+    ├── generate_sql.py             # Standalone script: share_payouts_by_unp.json → SQL INSERTs
     ├── AGENTS.md                   # Project-local module map and change rules
     └── src/
         ├── discover.py             # Auto-discovers workflow classes, starts Mistral worker
         └── workflows/
             ├── start.py            # CLI trigger for workflow execution
-            └── epfr/               # files downloader + PDF OCR + AI distiller workflows
+            └── epfr/               # 4 workflows: download, OCR, AI-distill, share payout export
                 └── AGENTS.md       # Pipeline internals, data contracts, activity boundaries
 ```
 
@@ -41,6 +43,7 @@ workflows/                          # Repository root
 - **Two `uv` environments.** Root `.venv` (ruff + ty tooling). `epfr-downloader/.venv` (runtime deps).
 - **Workflow sandbox rule.** The Mistral workflow runtime restricts `os.environ` access inside workflow classes. All env var reads must happen inside `@workflows.activity()` functions.
 - **Auto-discovery contract.** `discover.py` scans `src/workflows/` for classes with `__workflows_workflow_def`. New workflows must be in a subpackage under `src/workflows/` with a class decorated `@workflows.workflow.define(...)`.
+- **Four workflows.** `epfr-files-downloader`, `epfr-pdf-ocr-converter`, `epfr-ai-distiller`, `epfr-share-payout-exporter`.
 
 ## Change rules
 
@@ -64,7 +67,7 @@ make type-check
 # Lint from project
 cd epfr-downloader && make lint
 
-# Test from project
+# Test from project (note: test_pdf_ocr.py is skipped by default)
 cd epfr-downloader && make test
 
 # Start worker
@@ -72,6 +75,12 @@ cd epfr-downloader && make start-worker
 
 # Trigger main workflow
 cd epfr-downloader && make execute input='{"max_pages": 2, "date_from": "2026-03-01"}'
+
+# Trigger share payout export workflow
+cd epfr-downloader && make execute-share-payout-exporter input='{"output_dir": "output"}'
+
+# Docker: build and run worker container
+cd epfr-downloader && make docker-build && make docker-run
 ```
 
 ## Key docs
@@ -85,5 +94,6 @@ cd epfr-downloader && make execute input='{"max_pages": 2, "date_from": "2026-03
 ## Repository-specific gotchas
 
 - Root `.venv` is tooling-only; runtime dependencies are in `epfr-downloader/.venv`.
-- `make test` in `epfr-downloader` currently includes `test_pdf_ocr.py`, which can fail if local runtime/config for Mistral integrations is unavailable.
+- `make test` in `epfr-downloader` skips `test_pdf_ocr.py` by default (requires Mistral OCR API credentials).
 - Env vars are loaded from project-local `.env`; `MISTRAL_API_KEY` is required.
+- Docker volume mounts `epfr-downloader/output` to `/app/output` — outputs persist outside container.
