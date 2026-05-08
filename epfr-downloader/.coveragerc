@@ -1,0 +1,17 @@
+[run]
+omit =
+    */tests/*
+    src/discover.py
+    src/workflows/start.py
+
+include =
+    src/workflows/epfr/*
+
+[report]
+omit =
+    */tests/*
+    src/discover.py
+    src/workflows/start.py
+
+include =
+    src/workflows/epfr/*

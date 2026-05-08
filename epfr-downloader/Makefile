@@ -30,4 +30,7 @@ refactor:
 
 ## Run tests
 test:
-	uv run pytest src/ -v
+	uv run coverage run --rcfile=.coveragerc -m pytest src/ --verbose --showlocals --disable-warnings --ignore=src/workflows/epfr/tests/test_pdf_ocr.py && \
+	uv run coverage report --precision=3 --sort=cover --skip-empty --show-missing && \
+	uv run coverage html --precision=3 --skip-empty -d coverage/html/ && \
+	uv run coverage xml -o coverage/coverage.xml

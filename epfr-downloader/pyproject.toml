@@ -21,6 +21,7 @@ dependencies = [
 dev = [
     "ruff==0.15.11",
     "pytest==9.0.3",
+    "coverage>=7.6",
 ]
 
 [tool.pytest.ini_options]
