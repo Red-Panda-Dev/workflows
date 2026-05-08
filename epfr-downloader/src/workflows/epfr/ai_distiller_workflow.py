@@ -4,6 +4,7 @@ import logging
 
 import mistralai.workflows as workflows
 
+from .config import resolve_ai_distiller_input
 from .models import EpfrAiDistillerInput, EpfrAiDistillerOutput
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,18 @@ async def distill_epfr_dividends(input: EpfrAiDistillerInput) -> dict:
     logger.info(
         f"Activity distill_epfr_dividends invoked: output_dir={input.output_dir}, unps={input.unps}, model={input.model_name}"
     )
-    result = await run_ai_distillation(input)
+    resolved = resolve_ai_distiller_input(**input.model_dump(exclude_none=True, exclude={"unps"}))
+    resolved_input = EpfrAiDistillerInput(
+        output_dir=resolved["output_dir"],
+        mapping_filename=resolved["mapping_filename"],
+        output_filename=resolved["output_filename"],
+        model_name=resolved["model_name"],
+        temperature=resolved["temperature"],
+        max_retries=resolved["max_retries"],
+        file_delay_seconds=resolved["file_delay_seconds"],
+        unps=input.unps,
+    )
+    result = await run_ai_distillation(resolved_input)
     logger.info(
         f"Activity distill_epfr_dividends finished: {result.get('successful', 0)}/{result.get('total_files', 0)} files ok, {result.get('failed', 0)} failed"
     )

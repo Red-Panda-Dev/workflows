@@ -13,13 +13,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
-from .config import (
-    AI_RETRY_BACKOFF_BASE,
-    AI_RETRY_BACKOFF_MAX,
-    AI_RETRY_BACKOFF_MAX_429,
-    AI_RETRY_JITTER_RATIO,
-    AI_TIMEOUT,
-)
+from .config import load_epfr_config, require_mistral_api_key
 from .models import (
     EpfrAiDistilledCompany,
     EpfrAiDistilledFile,
@@ -62,16 +56,15 @@ class AIDistiller:
             f"Initializing AIDistiller: model={model_name}, temperature={temperature}, reference_date={reference_date}"
         )
 
-        api_key = os.environ.get("MISTRAL_API_KEY")
-        if not api_key:
-            raise ValueError("MISTRAL_API_KEY environment variable required for AI distillation")
+        cfg = load_epfr_config()
+        api_key = require_mistral_api_key(cfg)
 
         prompt_template = _load_prompt_template()
         self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
         self.model_name = model_name
         self.temperature = temperature
-        self.client = MistralClient(api_key=api_key, timeout_ms=AI_TIMEOUT * 1000)
-        logger.info(f"AIDistiller ready: timeout_ms={AI_TIMEOUT * 1000}, prompt_template_loaded=True")
+        self.client = MistralClient(api_key=api_key, timeout_ms=cfg.ai_timeout * 1000)
+        logger.info(f"AIDistiller ready: timeout_ms={cfg.ai_timeout * 1000}, prompt_template_loaded=True")
 
     async def extract(self, markdown_text: str) -> _RawExtraction:
         logger.debug(f"Sending extraction request: text_length={len(markdown_text)} chars")
@@ -133,9 +126,10 @@ class AIDistiller:
 
 def _compute_retry_wait_seconds(attempt: int, *, is_rate_limited: bool) -> float:
     """Compute capped exponential backoff with jitter for AI retries."""
-    capped_max = AI_RETRY_BACKOFF_MAX_429 if is_rate_limited else AI_RETRY_BACKOFF_MAX
-    base_wait = min(float(AI_RETRY_BACKOFF_BASE ** (attempt + 1)), float(capped_max))
-    jitter_span = base_wait * AI_RETRY_JITTER_RATIO
+    cfg = load_epfr_config()
+    capped_max = cfg.ai_retry_backoff_max_429 if is_rate_limited else cfg.ai_retry_backoff_max
+    base_wait = min(float(cfg.ai_retry_backoff_base ** (attempt + 1)), float(capped_max))
+    jitter_span = base_wait * cfg.ai_retry_jitter_ratio
     jitter = random.uniform(-jitter_span, jitter_span)
     wait = base_wait + jitter
     return max(0.1, round(wait, 2))
@@ -276,6 +270,13 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
 
 async def run_ai_distillation(input: EpfrAiDistillerInput) -> dict[str, Any]:
     """Run sequential AI distillation over mapped EPFR markdown files."""
+    assert input.output_dir is not None, "output_dir must be resolved before calling run_ai_distillation"
+    assert input.mapping_filename is not None, "mapping_filename must be resolved"
+    assert input.output_filename is not None, "output_filename must be resolved"
+    assert input.model_name is not None, "model_name must be resolved"
+    assert input.temperature is not None, "temperature must be resolved"
+    assert input.max_retries is not None, "max_retries must be resolved"
+    assert input.file_delay_seconds is not None, "file_delay_seconds must be resolved"
     output_root = Path(input.output_dir)
     mapping_path = output_root / input.mapping_filename
     output_path = output_root / input.output_filename

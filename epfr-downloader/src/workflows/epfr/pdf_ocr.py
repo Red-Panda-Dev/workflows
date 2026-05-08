@@ -13,7 +13,7 @@ from mistralai.client.models import DocumentURLChunk
 from mistralai.workflows.plugins.mistralai import OCRRequest
 from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
 
-from .config import MAX_CONCURRENT_OCR, MAX_PDF_SIZE_BYTES, OCR_MODEL
+from .config import load_epfr_config
 from .markdown_cleanup import clean_markdown_text
 
 logger = logging.getLogger(__name__)
@@ -75,11 +75,12 @@ async def ocr_pdf_to_markdown(
         return (False, md_path, "MD_ALREADY_EXISTS")
 
     try:
+        cfg = load_epfr_config()
         raw_bytes = await asyncio.to_thread(pdf_path.read_bytes)
         logger.debug(f"Read PDF bytes: path={pdf_path}, size={len(raw_bytes)}")
-        if len(raw_bytes) > MAX_PDF_SIZE_BYTES:
+        if len(raw_bytes) > cfg.max_pdf_size_bytes:
             logger.warning(
-                f"PDF exceeds max size and will not be OCRed: {pdf_path} ({len(raw_bytes)} > {MAX_PDF_SIZE_BYTES})"
+                f"PDF exceeds max size and will not be OCRed: {pdf_path} ({len(raw_bytes)} > {cfg.max_pdf_size_bytes})"
             )
             return (False, None, f"PDF_TOO_LARGE({len(raw_bytes)} bytes)")
 
@@ -87,11 +88,11 @@ async def ocr_pdf_to_markdown(
         data_uri = f"data:application/pdf;base64,{b64}"
 
         request = {
-            "model": OCR_MODEL,
+            "model": cfg.ocr_model,
             "document_url": data_uri,
             "document_name": pdf_path.name,
         }
-        logger.debug(f"Sending OCR request: model={OCR_MODEL}, document={pdf_path.name}")
+        logger.debug(f"Sending OCR request: model={cfg.ocr_model}, document={pdf_path.name}")
         result = await mistralai_ocr(request)
         ocr_text = clean_markdown_text("\n\n".join(page.markdown for page in result.pages))
         logger.debug(f"OCR response received: pages={len(result.pages)}, chars={len(ocr_text)}")
@@ -195,8 +196,9 @@ async def ocr_mapping_pdfs(
         "by_unp": {},
     }
 
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_OCR)
-    logger.info(f"OCR concurrency limit: {MAX_CONCURRENT_OCR}")
+    cfg = load_epfr_config()
+    semaphore = asyncio.Semaphore(cfg.max_concurrent_ocr)
+    logger.info(f"OCR concurrency limit: {cfg.max_concurrent_ocr}")
 
     for unp, company_data_any in mapping.items():
         company_data = company_data_any if isinstance(company_data_any, dict) else {}

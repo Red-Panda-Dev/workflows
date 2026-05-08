@@ -30,9 +30,11 @@ cd epfr-downloader && uv sync
 
 Create `epfr-downloader/.env`:
 
-```dotenv
-MISTRAL_API_KEY=your_key_here
+```bash
+cp epfr-downloader/.env.example epfr-downloader/.env
 ```
+
+See `epfr-downloader/.env.example` for all available configuration options.
 
 ### Run worker and execute
 
@@ -83,11 +85,12 @@ make test
 
 ## Workflow overview
 
-The project has three independently invocable workflows:
+The project has four independently invocable workflows:
 
 1. `epfr-files-downloader` - fetch pages, download files, extract archives, convert documents, write `unp_file_mapping.json`
 2. `epfr-pdf-ocr-converter` - OCR PDFs from mapping and update mapping entries to markdown files
 3. `epfr-ai-distiller` - extract structured dividend records from markdown and write `ai_distilled_dividends.json`
+4. `epfr-share-payout-exporter` - join distilled dividends with share reference CSV and produce `share_payouts_by_unp.json`
 
 ## Docs
 

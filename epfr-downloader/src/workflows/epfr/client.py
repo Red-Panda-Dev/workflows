@@ -14,21 +14,7 @@ from urllib.parse import urlencode
 
 import aiohttp
 
-from .config import (
-    BASE_API_URL,
-    CHUNK_SIZE,
-    DEFAULT_SEARCH_QUERY,
-    DEFAULT_SORT_DIR,
-    DEFAULT_SORT_FIELD,
-    DEFAULT_SUB_CATEGORY_ID,
-    DOWNLOAD_RETRIES,
-    DOWNLOAD_TIMEOUT,
-    FILE_DOWNLOAD_URL_TEMPLATE,
-    MAX_CONCURRENT_DOWNLOADS,
-    MAX_RETRIES,
-    RETRY_BACKOFF_BASE,
-    RETRY_BACKOFF_MAX,
-)
+from .config import load_epfr_config
 from .detector import build_filename
 from .models import EpfrApiResponse, EpfrRecord
 
@@ -49,15 +35,16 @@ def build_page_url(page_no: int, date_from: str) -> str:
         Full URL string with query parameters.
 
     """
+    cfg = load_epfr_config()
     params = {
-        "search": DEFAULT_SEARCH_QUERY,
+        "search": cfg.default_search_query,
         "pageNo": page_no,
-        "sortField": DEFAULT_SORT_FIELD,
-        "sortDir": DEFAULT_SORT_DIR,
+        "sortField": cfg.default_sort_field,
+        "sortDir": cfg.default_sort_dir,
         "searchDateFrom": date_from,
-        "subCategoryId": DEFAULT_SUB_CATEGORY_ID,
+        "subCategoryId": cfg.default_sub_category_id,
     }
-    return f"{BASE_API_URL}?{urlencode(params)}"
+    return f"{cfg.base_api_url}?{urlencode(params)}"
 
 
 def build_download_url(record_id: int) -> str:
@@ -73,7 +60,8 @@ def build_download_url(record_id: int) -> str:
         Download URL string.
 
     """
-    return FILE_DOWNLOAD_URL_TEMPLATE.format(record_id=record_id)
+    cfg = load_epfr_config()
+    return cfg.file_download_url_template.format(record_id=record_id)
 
 
 async def fetch_page(
@@ -101,8 +89,9 @@ async def fetch_page(
 
     """
     url = build_page_url(page_no, date_from)
+    cfg = load_epfr_config()
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, cfg.max_retries + 1):
         try:
             async with session.get(
                 url,
@@ -114,12 +103,12 @@ async def fetch_page(
                         "Page %d attempt %d/%d: HTTP %d: %s",
                         page_no,
                         attempt,
-                        MAX_RETRIES,
+                        cfg.max_retries,
                         resp.status,
                         text[:200],
                     )
-                    if attempt < MAX_RETRIES:
-                        backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
+                    if attempt < cfg.max_retries:
+                        backoff = min(cfg.retry_backoff_max, cfg.retry_backoff_base**attempt)
                         await asyncio.sleep(backoff)
                     continue
 
@@ -135,15 +124,15 @@ async def fetch_page(
                 "Page %d attempt %d/%d: %s: %s",
                 page_no,
                 attempt,
-                MAX_RETRIES,
+                cfg.max_retries,
                 type(exc).__name__,
                 exc,
             )
-            if attempt < MAX_RETRIES:
-                backoff = min(RETRY_BACKOFF_MAX, RETRY_BACKOFF_BASE**attempt)
+            if attempt < cfg.max_retries:
+                backoff = min(cfg.retry_backoff_max, cfg.retry_backoff_base**attempt)
                 await asyncio.sleep(backoff)
 
-    raise RuntimeError(f"Page {page_no}: all {MAX_RETRIES} attempts failed")
+    raise RuntimeError(f"Page {page_no}: all {cfg.max_retries} attempts failed")
 
 
 async def download_file(
@@ -169,9 +158,10 @@ async def download_file(
 
     """
     url = build_download_url(record_id)
+    cfg = load_epfr_config()
 
     async with semaphore:
-        for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        for attempt in range(1, cfg.download_retries + 1):
             try:
                 company_dir.mkdir(parents=True, exist_ok=True)
 
@@ -184,7 +174,7 @@ async def download_file(
                 try:
                     async with session.get(
                         url,
-                        timeout=aiohttp.ClientTimeout(total=DOWNLOAD_TIMEOUT),
+                        timeout=aiohttp.ClientTimeout(total=cfg.download_timeout),
                     ) as resp:
                         if resp.status != 200:
                             text = await resp.text()
@@ -193,13 +183,13 @@ async def download_file(
                                 "Download %d attempt %d/%d: %s",
                                 record_id,
                                 attempt,
-                                DOWNLOAD_RETRIES,
+                                cfg.download_retries,
                                 error,
                             )
                             os.close(fd)
                             if os.path.exists(tmp_path):
                                 os.unlink(tmp_path)
-                            if attempt < DOWNLOAD_RETRIES:
+                            if attempt < cfg.download_retries:
                                 await asyncio.sleep(2**attempt)
                             continue
 
@@ -207,7 +197,7 @@ async def download_file(
                         extension = ".bin"
                         total_bytes = 0
 
-                        async for chunk in resp.content.iter_chunked(CHUNK_SIZE):
+                        async for chunk in resp.content.iter_chunked(cfg.chunk_size):
                             if first_chunk and chunk:
                                 extension = build_filename(record_id, chunk).split(".", maxsplit=1)[1]
                                 extension = f".{extension}"
@@ -238,10 +228,10 @@ async def download_file(
                         "Download %d attempt %d/%d: %s",
                         record_id,
                         attempt,
-                        DOWNLOAD_RETRIES,
+                        cfg.download_retries,
                         error,
                     )
-                    if attempt < DOWNLOAD_RETRIES:
+                    if attempt < cfg.download_retries:
                         await asyncio.sleep(2**attempt)
                     continue
 
@@ -251,14 +241,14 @@ async def download_file(
                     "Unexpected error downloading %d (attempt %d/%d): %s",
                     record_id,
                     attempt,
-                    DOWNLOAD_RETRIES,
+                    cfg.download_retries,
                     error,
                 )
-                if attempt < DOWNLOAD_RETRIES:
+                if attempt < cfg.download_retries:
                     await asyncio.sleep(2**attempt)
                 continue
 
-        return (record_id, False, f"Failed after {DOWNLOAD_RETRIES} attempts", "")
+        return (record_id, False, f"Failed after {cfg.download_retries} attempts", "")
 
 
 async def download_all_files(
@@ -282,7 +272,8 @@ async def download_all_files(
         - by_unp: {unp: {success, failed, files: [{id, filename}]}}
 
     """
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+    cfg = load_epfr_config()
+    semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
 
     grouped: dict[str, list[EpfrRecord]] = {}
     for rec in records:

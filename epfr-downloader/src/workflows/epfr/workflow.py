@@ -16,7 +16,7 @@ import aiohttp
 import mistralai.workflows as workflows
 
 from .client import _get_unp, download_all_files, fetch_page
-from .config import FIRST_PAGE_NO, MAPPING_FILENAME, PAGE_DELAY
+from .config import load_epfr_config, resolve_workflow_input
 from .converter import convert_all_files
 from .extractor import extract_all_archives
 from .models import (
@@ -43,13 +43,20 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
         Flattened list of all EpfrRecord objects across fetched pages.
 
     """
+    resolved = resolve_workflow_input(**input.model_dump(exclude_none=True))
+    max_pages = resolved["max_pages"]
+    date_from = resolved["date_from"]
+    timeout = resolved["timeout"]
+
+    cfg = load_epfr_config()
+
     all_records: list[EpfrRecord] = []
 
     async with aiohttp.ClientSession() as session:
-        for page_no in range(FIRST_PAGE_NO, FIRST_PAGE_NO + input.max_pages):
-            logger.info("Fetching page %d (date_from=%s)", page_no, input.date_from)
+        for page_no in range(cfg.first_page_no, cfg.first_page_no + max_pages):
+            logger.info("Fetching page %d (date_from=%s)", page_no, date_from)
 
-            response = await fetch_page(session, page_no, input.date_from, input.timeout)
+            response = await fetch_page(session, page_no, date_from, timeout)
 
             records = response.content
             all_records.extend(records)
@@ -67,7 +74,7 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
                 logger.info("Last page reached at pageNo=%d", page_no)
                 break
 
-            await asyncio.sleep(PAGE_DELAY)
+            await asyncio.sleep(cfg.page_delay)
 
     logger.info("Fetched %d total records across pages", len(all_records))
     return all_records
@@ -373,7 +380,9 @@ async def save_unp_mapping(
         if files
     }
 
-    mapping_path = output_path / MAPPING_FILENAME
+    cfg = load_epfr_config()
+
+    mapping_path = output_path / cfg.mapping_filename
 
     fd, tmp_path = tempfile.mkstemp(
         dir=str(mapping_path.parent),
@@ -422,11 +431,14 @@ class EpfrFilesDownloader:
             EpfrWorkflowOutput with totals, mapping path, and stats.
 
         """
+        resolved = resolve_workflow_input(**input.model_dump(exclude_none=True))
+        output_dir = resolved["output_dir"]
+
         logger.info(
-            "Starting EPFR download: max_pages=%d, date_from=%s, output_dir=%s",
+            "Starting EPFR download: max_pages=%s, date_from=%s, output_dir=%s",
             input.max_pages,
             input.date_from,
-            input.output_dir,
+            output_dir,
         )
 
         records = await fetch_all_pages(input)
@@ -441,15 +453,13 @@ class EpfrFilesDownloader:
                 stats={"error": "No records found"},
             )
 
-        download_stats = await download_all_epfr_files(records, input.output_dir)
+        download_stats = await download_all_epfr_files(records, output_dir)
 
-        extraction_stats = await extract_all_epfr_archives(input.output_dir, download_stats)
+        extraction_stats = await extract_all_epfr_archives(output_dir, download_stats)
 
-        conversion_stats = await convert_all_epfr_files(input.output_dir, download_stats)
+        conversion_stats = await convert_all_epfr_files(output_dir, download_stats)
 
-        mapping_path = await save_unp_mapping(
-            records, input.output_dir, download_stats, extraction_stats, conversion_stats
-        )
+        mapping_path = await save_unp_mapping(records, output_dir, download_stats, extraction_stats, conversion_stats)
 
         unps = set()
         for rec in records:
@@ -461,8 +471,8 @@ class EpfrFilesDownloader:
             total_companies=len(unps),
             mapping_path=mapping_path,
             stats={
-                "pages_requested": input.max_pages,
-                "date_from": input.date_from,
+                "pages_requested": resolved["max_pages"],
+                "date_from": resolved["date_from"],
                 "download_successful": download_stats["successful"],
                 "download_failed": download_stats["failed"],
                 "download_failed_ids": download_stats["failed_ids"],

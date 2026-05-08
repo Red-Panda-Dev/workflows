@@ -4,14 +4,21 @@
 
 import argparse
 import asyncio
+import importlib
 import json
-import os
 
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+if __package__ in {None, ""}:
+    _config = importlib.import_module("epfr.config")
+else:
+    _config = importlib.import_module("workflows.epfr.config")
 
-from mistralai.workflows.client import get_mistral_client
+get_dotenv_path = _config.get_dotenv_path
+load_epfr_config = _config.load_epfr_config
+require_mistral_api_key = _config.require_mistral_api_key
+
+load_dotenv(get_dotenv_path(), override=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,19 +70,24 @@ async def main() -> None:
     if not isinstance(raw_input, dict):
         raise SystemExit(f"Error: --input must be a JSON object, got {type(raw_input).__name__}")
 
-    api_key = os.environ.get("MISTRAL_API_KEY", "")
-    if not api_key:
-        raise SystemExit(1)
+    cfg = load_epfr_config()
+
+    try:
+        api_key = require_mistral_api_key(cfg)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+
+    from mistralai.workflows.client import get_mistral_client
 
     client = get_mistral_client(
         api_key=api_key,
-        server_url=os.environ.get("SERVER_URL", "https://api.mistral.ai"),
+        server_url=cfg.server_url,
     )
 
     await client.workflows.execute_workflow_and_wait_async(
         workflow_identifier=workflow_name,
         input=raw_input,
-        deployment_name=os.environ.get("DEPLOYMENT_NAME", "default"),
+        deployment_name=cfg.deployment_name,
     )
 
 

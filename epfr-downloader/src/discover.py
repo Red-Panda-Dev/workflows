@@ -6,20 +6,23 @@ import inspect
 import logging
 import pkgutil
 import sys
+from collections.abc import Sequence
 
 from dotenv import load_dotenv
 
-import mistralai.workflows as workflows
-from mistralai.workflows.core.definition.workflow_definition import (
+from workflows.epfr.config import get_dotenv_path
+
+load_dotenv(get_dotenv_path(), override=True)
+
+import mistralai.workflows as workflows  # noqa: E402
+from mistralai.workflows.core.definition.workflow_definition import (  # noqa: E402
     get_workflow_definition,
 )
-
-load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
 
 
-def scan_package(package_name: str, package_path: list[str], discovered: list[type]) -> None:
+def scan_package(package_name: str, package_path: Sequence[str], discovered: list[type]) -> None:
     """Recursively scans a package and its subpackages for workflow classes.
 
     Iterates through all modules in the package using pkgutil, imports each module,

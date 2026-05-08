@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from ..config import AI_DISTILLED_FILENAME, SHARE_PAYOUT_EXPORT_FILENAME
 from ..models import (
     EpfrApiResponse,
+    EpfrAiDistillerInput,
     EpfrDividendEntry,
     EpfrFileRecord,
     EpfrSharePayoutExportInput,
@@ -167,10 +167,10 @@ class TestEpfrWorkflowInput:
 
     def test_defaults(self):
         inp = EpfrWorkflowInput()
-        assert inp.max_pages == 10
-        assert inp.date_from == "2026-03-01"
-        assert inp.timeout == 60
-        assert inp.output_dir == "output"
+        assert inp.max_pages is None
+        assert inp.date_from is None
+        assert inp.timeout is None
+        assert inp.output_dir is None
 
     def test_custom_values(self):
         inp = EpfrWorkflowInput(max_pages=5, date_from="2026-01-01", timeout=30)
@@ -178,11 +178,27 @@ class TestEpfrWorkflowInput:
         assert inp.date_from == "2026-01-01"
         assert inp.timeout == 30
 
-    def test_max_pages_validation(self):
-        with pytest.raises(Exception):  # noqa: B017
-            EpfrWorkflowInput(max_pages=0)
-        with pytest.raises(Exception):  # noqa: B017
-            EpfrWorkflowInput(max_pages=101)
+    def test_max_pages_must_be_positive(self):
+        for value in (0, -1):
+            with pytest.raises(ValidationError):
+                EpfrWorkflowInput(max_pages=value)
+
+    def test_timeout_must_be_positive(self):
+        for value in (0, -1):
+            with pytest.raises(ValidationError):
+                EpfrWorkflowInput(timeout=value)
+
+
+class TestEpfrAiDistillerInput:
+    """Tests for AI distiller input validation."""
+
+    def test_temperature_must_be_non_negative(self):
+        with pytest.raises(ValidationError):
+            EpfrAiDistillerInput(temperature=-0.1)
+
+    def test_max_retries_must_be_non_negative(self):
+        with pytest.raises(ValidationError):
+            EpfrAiDistillerInput(max_retries=-1)
 
 
 class TestEpfrWorkflowOutput:
@@ -279,7 +295,7 @@ class TestEpfrSharePayoutExportRow:
             payment_date=date(2026, 5, 10),
         )
         defaults.update(overrides)
-        return EpfrSharePayoutExportRow(**defaults)
+        return EpfrSharePayoutExportRow.model_validate(defaults)
 
     def test_valid_export_row_creation(self):
         row = self._make_row()
@@ -352,9 +368,9 @@ class TestEpfrSharePayoutExportInput:
 
     def test_defaults(self):
         inp = EpfrSharePayoutExportInput()
-        assert inp.output_dir == "output"
-        assert inp.input_filename == AI_DISTILLED_FILENAME
-        assert inp.output_filename == SHARE_PAYOUT_EXPORT_FILENAME
+        assert inp.output_dir is None
+        assert inp.input_filename is None
+        assert inp.output_filename is None
         assert inp.shares_csv_path is None
 
     def test_custom_values(self):

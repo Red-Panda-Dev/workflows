@@ -11,16 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_serializer, model_validator
 
-from .config import (
-    AI_DISTILLED_FILENAME,
-    AI_FILE_DELAY,
-    AI_MAX_RETRIES,
-    AI_MODEL,
-    AI_TEMPERATURE,
-    MAPPING_FILENAME,
-    SHARE_PAYOUT_EXPORT_FILENAME,
-)
-
 
 class Holder(BaseModel):
     """Represent the dividend-report holder (issuer company) from an EPFR record."""
@@ -85,26 +75,14 @@ class CompanyFiles(BaseModel):
 class EpfrWorkflowInput(BaseModel):
     """Configure the EPFR downloader workflow execution."""
 
-    max_pages: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Maximum number of API pages to iterate (default: 10)",
+    max_pages: int | None = Field(
+        default=None, ge=1, description="Maximum number of API pages to iterate (default: 10)"
     )
-    date_from: str = Field(
-        default="2026-03-01",
-        description="Start date filter in YYYY-MM-DD format (searchDateFrom parameter)",
+    date_from: str | None = Field(
+        default=None, description="Start date filter in YYYY-MM-DD format (searchDateFrom parameter)"
     )
-    timeout: int = Field(
-        default=60,
-        ge=10,
-        le=300,
-        description="Per-request timeout in seconds (default: 60)",
-    )
-    output_dir: str = Field(
-        default="output",
-        description="Root directory for downloaded files and mapping JSON",
-    )
+    timeout: int | None = Field(default=None, ge=1, description="Per-request timeout in seconds (default: 60)")
+    output_dir: str | None = Field(default=None, description="Root directory for downloaded files and mapping JSON")
 
 
 class EpfrWorkflowOutput(BaseModel):
@@ -120,26 +98,13 @@ class EpfrWorkflowOutput(BaseModel):
 class EpfrPdfOcrInput(BaseModel):
     """Configure the separate EPFR PDF OCR workflow execution."""
 
-    output_dir: str = Field(
-        default="output",
-        description="Root directory containing UNP folders and mapping JSON",
+    output_dir: str | None = Field(default=None, description="Root directory containing UNP folders and mapping JSON")
+    mapping_filename: str | None = Field(default=None, description="Mapping filename inside output_dir")
+    overwrite: bool = Field(default=True, description="If True, overwrite existing markdown files")
+    cleanup_source: bool | None = Field(
+        default=None, description="If True, remove source PDF after successful OCR conversion"
     )
-    mapping_filename: str = Field(
-        default="unp_file_mapping.json",
-        description="Mapping filename inside output_dir",
-    )
-    overwrite: bool = Field(
-        default=True,
-        description="If True, overwrite existing markdown files",
-    )
-    cleanup_source: bool = Field(
-        default=True,
-        description="If True, remove source PDF after successful OCR conversion",
-    )
-    unps: list[str] | None = Field(
-        default=None,
-        description="Optional list of UNPs to process; all UNPs if omitted",
-    )
+    unps: list[str] | None = Field(default=None, description="Optional list of UNPs to process; all UNPs if omitted")
 
 
 class EpfrPdfOcrOutput(BaseModel):
@@ -224,44 +189,18 @@ class EpfrAiDistilledCompany(BaseModel):
 class EpfrAiDistillerInput(BaseModel):
     """Configure EPFR AI dividend distillation workflow execution."""
 
-    output_dir: str = Field(
-        default="output",
-        description="Root directory containing UNP folders and mapping JSON",
+    output_dir: str | None = Field(default=None, description="Root directory containing UNP folders and mapping JSON")
+    mapping_filename: str | None = Field(default=None, description="Input mapping filename inside output_dir")
+    output_filename: str | None = Field(default=None, description="Output JSON filename inside output_dir")
+    model_name: str | None = Field(default=None, description="Mistral model identifier for chat.parse extraction")
+    temperature: float | None = Field(default=None, ge=0.0, description="Mistral model temperature")
+    max_retries: int | None = Field(
+        default=None, ge=0, description="Maximum retry attempts for transient AI call failures"
     )
-    mapping_filename: str = Field(
-        default=MAPPING_FILENAME,
-        description="Input mapping filename inside output_dir",
+    file_delay_seconds: float | None = Field(
+        default=None, ge=0.0, description="Delay between sequential file processing operations"
     )
-    output_filename: str = Field(
-        default=AI_DISTILLED_FILENAME,
-        description="Output JSON filename inside output_dir",
-    )
-    model_name: str = Field(
-        default=AI_MODEL,
-        description="Mistral model identifier for chat.parse extraction",
-    )
-    temperature: float = Field(
-        default=AI_TEMPERATURE,
-        ge=0,
-        le=2,
-        description="Mistral model temperature",
-    )
-    max_retries: int = Field(
-        default=AI_MAX_RETRIES,
-        ge=1,
-        le=10,
-        description="Maximum retry attempts for transient AI call failures",
-    )
-    file_delay_seconds: float = Field(
-        default=AI_FILE_DELAY,
-        ge=0,
-        le=30,
-        description="Delay between sequential file processing operations",
-    )
-    unps: list[str] | None = Field(
-        default=None,
-        description="Optional subset of UNP company folders to process",
-    )
+    unps: list[str] | None = Field(default=None, description="Optional subset of UNP company folders to process")
 
 
 class EpfrAiDistillerOutput(BaseModel):
@@ -317,21 +256,13 @@ class EpfrSharePayoutExportRow(BaseModel):
 class EpfrSharePayoutExportInput(BaseModel):
     """Configure the share payout export workflow execution."""
 
-    output_dir: str = Field(
-        default="output",
-        description="Root directory containing distilled JSON and export output",
+    output_dir: str | None = Field(
+        default=None, description="Root directory containing distilled JSON and export output"
     )
-    input_filename: str = Field(
-        default=AI_DISTILLED_FILENAME,
-        description="Input distilled JSON filename inside output_dir",
-    )
-    output_filename: str = Field(
-        default=SHARE_PAYOUT_EXPORT_FILENAME,
-        description="Output export JSON filename inside output_dir",
-    )
+    input_filename: str | None = Field(default=None, description="Input distilled JSON filename inside output_dir")
+    output_filename: str | None = Field(default=None, description="Output export JSON filename inside output_dir")
     shares_csv_path: str | None = Field(
-        default=None,
-        description="Optional override path for shares CSV; uses config default when None",
+        default=None, description="Optional override path for shares CSV; uses config default when None"
     )
 
 

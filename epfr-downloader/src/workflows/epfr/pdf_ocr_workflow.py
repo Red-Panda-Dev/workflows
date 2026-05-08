@@ -5,6 +5,7 @@ from pathlib import Path
 
 import mistralai.workflows as workflows
 
+from .config import resolve_pdf_ocr_input
 from .models import EpfrPdfOcrInput, EpfrPdfOcrOutput
 from .pdf_ocr import ocr_mapping_pdfs
 
@@ -28,14 +29,15 @@ async def ocr_epfr_mapping_pdfs(input: EpfrPdfOcrInput) -> dict:
         f"mapping_filename={input.mapping_filename}, overwrite={input.overwrite}, "
         f"cleanup_source={input.cleanup_source}, unps={input.unps}"
     )
-    output_root = Path(input.output_dir)
+    resolved = resolve_pdf_ocr_input(**input.model_dump(exclude_none=True))
+    output_root = Path(resolved["output_dir"])
     output_root.mkdir(parents=True, exist_ok=True)
 
     return await ocr_mapping_pdfs(
         output_root=output_root,
-        mapping_filename=input.mapping_filename,
+        mapping_filename=resolved["mapping_filename"],
         overwrite=input.overwrite,
-        cleanup_source=input.cleanup_source,
+        cleanup_source=resolved["cleanup_source"],
         unps=input.unps,
     )
 

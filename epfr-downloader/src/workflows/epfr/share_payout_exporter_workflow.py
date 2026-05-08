@@ -5,6 +5,7 @@ import logging
 import mistralai.workflows as workflows
 
 from . import config
+from .config import resolve_share_payout_export_input
 from .models import EpfrSharePayoutExportInput, EpfrSharePayoutExportOutput
 from .share_payout_exporter import run_share_payout_export
 
@@ -15,7 +16,14 @@ logger = logging.getLogger(__name__)
 async def export_share_payouts(input: EpfrSharePayoutExportInput) -> dict:
     """Run share payout export activity."""
     logger.info(f"Activity export_share_payouts invoked: output_dir={input.output_dir}, csv={input.shares_csv_path}")
-    result = run_share_payout_export(input)
+    resolved = resolve_share_payout_export_input(**input.model_dump(exclude_none=True, exclude={"shares_csv_path"}))
+    resolved_input = EpfrSharePayoutExportInput(
+        output_dir=resolved["output_dir"],
+        input_filename=resolved["input_filename"],
+        output_filename=resolved["output_filename"],
+        shares_csv_path=input.shares_csv_path,
+    )
+    result = run_share_payout_export(resolved_input)
     logger.info(
         f"Activity export_share_payouts finished: {result.get('matched_payouts', 0)} matched, "
         f"{result.get('unmatched_payouts', 0)} unmatched, {result.get('total_companies_exported', 0)} companies"
