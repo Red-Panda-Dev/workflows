@@ -1,0 +1,41 @@
+name: PR Prod CI
+
+on:
+  pull_request:
+    branches:
+      - prod
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: epfr-downloader
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.14.3"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run lint
+        run: make lint
+
+      - name: Run tests with coverage
+        run: |
+          uv run coverage run --rcfile=.coveragerc -m pytest src/ --verbose --showlocals --disable-warnings \
+            --ignore=src/workflows/epfr/tests/test_pdf_ocr.py && \
+          uv run coverage report --precision=3 --sort=cover --skip-empty --show-missing && \
+          uv run coverage xml -o coverage/coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: epfr-downloader/coverage/coverage.xml
