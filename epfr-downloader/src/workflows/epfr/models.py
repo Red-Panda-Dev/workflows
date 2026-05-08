@@ -6,10 +6,10 @@ Unknown or unused API fields are silently ignored.
 """
 
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_serializer, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 
 class Holder(BaseModel):
@@ -123,6 +123,25 @@ class EpfrPdfOcrOutput(BaseModel):
 PeriodType = Literal["annual", "halfyear", "quarterly"]
 ShareType = Literal["common", "preferred"]
 
+AMOUNT_PER_SHARE_QUANTUM = Decimal("0.00000001")
+
+
+def _normalize_amount_per_share(value: Any) -> Any:
+    """Round dividend amounts to the 8-decimal schema precision."""
+    if isinstance(value, Decimal):
+        decimal_value = value
+    else:
+        try:
+            decimal_value = Decimal(str(value))
+        except Exception:  # noqa: BLE001
+            return value
+
+    quantized = decimal_value.quantize(AMOUNT_PER_SHARE_QUANTUM, rounding=ROUND_HALF_UP)
+    fixed_point = format(quantized, "f")
+    if "." in fixed_point:
+        fixed_point = fixed_point.rstrip("0").rstrip(".")
+    return Decimal(fixed_point or "0")
+
 
 class EpfrDividendEntry(BaseModel):
     """Represent one normalized dividend payout extracted from one file."""
@@ -135,6 +154,12 @@ class EpfrDividendEntry(BaseModel):
     decision_date: date
     record_date: date
     payment_date: date
+
+    @field_validator("amount_per_share", mode="before")
+    @classmethod
+    def normalize_amount_per_share(cls, value: Any) -> Any:
+        """Normalize AI-emitted precision before decimal-place validation runs."""
+        return _normalize_amount_per_share(value)
 
     @model_validator(mode="after")
     def validate_period_and_dates(self) -> "EpfrDividendEntry":
@@ -231,6 +256,12 @@ class EpfrSharePayoutExportRow(BaseModel):
     decision_date: date
     record_date: date
     payment_date: date
+
+    @field_validator("amount_per_share", mode="before")
+    @classmethod
+    def normalize_amount_per_share(cls, value: Any) -> Any:
+        """Normalize export amounts to match the shared dividend precision contract."""
+        return _normalize_amount_per_share(value)
 
     @field_serializer("amount_per_share", mode="plain")
     @classmethod

@@ -53,6 +53,24 @@ def test_normalize_and_fill_dividend_keeps_provided_dates():
     assert autofilled == []
 
 
+def test_normalize_and_fill_dividend_rounds_high_precision_amount_to_model_precision():
+    raw = _RawDividendEntry(
+        share_type="common",
+        period_year=2025,
+        period_type="quarterly",
+        period_number=1,
+        amount_per_share="0.0679270871",
+        decision_date="2025-04-10",
+        record_date="2025-04-05",
+        payment_date="2025-05-10",
+    )
+
+    normalized, autofilled = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+
+    assert normalized.amount_per_share == Decimal("0.06792709")
+    assert autofilled == []
+
+
 def test_normalize_and_fill_dividend_sets_payment_date_plus_one_day_for_zero_amount():
     raw = _RawDividendEntry(
         share_type="common",

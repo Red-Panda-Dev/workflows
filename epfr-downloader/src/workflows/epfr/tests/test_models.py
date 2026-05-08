@@ -279,6 +279,22 @@ class TestEpfrDividendEntry:
                 }
             )
 
+    def test_rounds_amount_per_share_to_8_decimal_places(self):
+        entry = EpfrDividendEntry.model_validate(
+            {
+                "share_type": "common",
+                "period_year": 2025,
+                "period_type": "annual",
+                "period_number": 1,
+                "amount_per_share": "0.0679270871",
+                "decision_date": "2025-05-01",
+                "record_date": "2025-04-01",
+                "payment_date": "2025-06-01",
+            }
+        )
+
+        assert entry.amount_per_share == Decimal("0.06792709")
+
 
 class TestEpfrSharePayoutExportRow:
     """Tests for the DB-ready export row model."""
@@ -334,6 +350,12 @@ class TestEpfrSharePayoutExportRow:
         row = self._make_row(amount_per_share=Decimal("0"))
         data = row.model_dump(mode="json")
         assert data["amount_per_share"] == "0"
+
+    def test_high_precision_amount_is_rounded_and_serialized_without_scientific_notation(self):
+        row = self._make_row(amount_per_share=Decimal("0.0679270871"))
+
+        assert row.amount_per_share == Decimal("0.06792709")
+        assert row.model_dump(mode="json")["amount_per_share"] == "0.06792709"
 
     def test_dates_serialize_as_iso_strings(self):
         row = self._make_row(
