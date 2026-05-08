@@ -114,9 +114,11 @@ class TestConvertToMarkdown:
         assert error is not None
         assert md_path is None
 
-    def test_creates_md_file_with_correct_name(self, tmp_path: Path):
+    def test_creates_md_file_with_correct_name(self, tmp_path: Path, monkeypatch):
         doc_file = tmp_path / "report.doc"
         doc_file.write_bytes("Sample document text".encode("utf-8"))
+
+        monkeypatch.setattr(converter, "_extract_doc", lambda _path: "Sample document text")
 
         success, content, error, md_path = convert_to_markdown(doc_file)
 
@@ -126,11 +128,13 @@ class TestConvertToMarkdown:
         assert md_path.exists()
         assert "Sample document text" in md_path.read_text()
 
-    def test_overwrite_true_replaces_existing(self, tmp_path: Path):
+    def test_overwrite_true_replaces_existing(self, tmp_path: Path, monkeypatch):
         doc_file = tmp_path / "test.doc"
         doc_file.write_bytes("New content".encode("utf-8"))
         md_file = tmp_path / "test.md"
         md_file.write_text("Old markdown")
+
+        monkeypatch.setattr(converter, "_extract_doc", lambda _path: "New content")
 
         success, content, error, md_path = convert_to_markdown(doc_file, overwrite=True)
 
@@ -170,9 +174,11 @@ class TestConvertToMarkdownExtensions:
         ext = Path("file.xls").suffix.lower()
         assert ext == ".xls"
 
-    def test_case_insensitive_extension(self, tmp_path: Path):
+    def test_case_insensitive_extension(self, tmp_path: Path, monkeypatch):
         doc_file = tmp_path / "TEST.DOC"
         doc_file.write_bytes("content".encode("utf-8"))
+
+        monkeypatch.setattr(converter, "_extract_doc", lambda _path: "content")
 
         success, content, error, md_path = convert_to_markdown(doc_file)
 
