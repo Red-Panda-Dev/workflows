@@ -171,6 +171,47 @@ def _shift_months(value: date, months: int) -> date:
     return date(year, month, min(value.day, day_max))
 
 
+def _safe_replace_year(value: date, new_year: int) -> date:
+    """Replace year safely, handling leap-day rollover."""
+    try:
+        return value.replace(year=new_year)
+    except ValueError:
+        return date(new_year, value.month, 28)
+
+
+def _validate_and_correct_dates(
+    period_type: str,
+    period_year: int,
+    decision_date: date,
+    record_date: date,
+    payment_date: date,
+    autofilled: list[str],
+) -> tuple[int, date, date, date]:
+    """Apply post-extraction date sanity checks and corrections."""
+    if (decision_date.toordinal() - record_date.toordinal()) > 183:
+        record_date = _shift_months(decision_date, -1)
+        autofilled.append("record_date_corrected")
+
+    if (payment_date.toordinal() - decision_date.toordinal()) > 365:
+        payment_date = _shift_months(decision_date, 2)
+        autofilled.append("payment_date_corrected")
+
+    if period_type == "annual" and period_year == decision_date.year:
+        current_year = datetime.now(UTC).year
+        corrected_dates_year = decision_date.year + 1
+
+        if corrected_dates_year > current_year:
+            period_year -= 1
+            autofilled.append("period_year_corrected")
+        else:
+            decision_date = _safe_replace_year(decision_date, corrected_dates_year)
+            record_date = _safe_replace_year(record_date, corrected_dates_year)
+            payment_date = _safe_replace_year(payment_date, corrected_dates_year)
+            autofilled.append("dates_year_corrected")
+
+    return period_year, decision_date, record_date, payment_date
+
+
 def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tuple[EpfrDividendEntry, list[str]]:
     """Normalize AI raw dividend payload and auto-fill missing required dates."""
     autofilled: list[str] = []
@@ -210,6 +251,15 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
         autofilled.append("period_year")
     if raw.amount_per_share is None:
         autofilled.append("amount_per_share")
+
+    period_year, decision_date, record_date, payment_date = _validate_and_correct_dates(
+        period_type=period_type,
+        period_year=period_year,
+        decision_date=decision_date,
+        record_date=record_date,
+        payment_date=payment_date,
+        autofilled=autofilled,
+    )
 
     normalized = EpfrDividendEntry(
         share_type=cast(ShareType, share_type),
