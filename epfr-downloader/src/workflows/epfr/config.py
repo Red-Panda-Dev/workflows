@@ -9,8 +9,6 @@ Two APIs coexist:
   - **Typed dataclass** — ``EpfrConfig`` / ``load_epfr_config()`` for new code.
 """
 
-from __future__ import annotations
-
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -170,8 +168,8 @@ _ENV_FIELDS: list[tuple[str, type, str, str | None]] = [
     ("retry_backoff_max", int, "EPFR_RETRY_BACKOFF_MAX", "positive_int"),
     ("max_concurrent_ocr", int, "EPFR_MAX_CONCURRENT_OCR", "positive_int"),
     ("max_pdf_size_bytes", int, "EPFR_MAX_PDF_SIZE_BYTES", "positive_int"),
-    ("ocr_model", str, "EPFR_OCR_MODEL", None),
-    ("ai_model", str, "EPFR_AI_MODEL", None),
+    ("ocr_model", str, "EPFR_OCR_MODEL", "mistral-ocr-latest"),
+    ("ai_model", str, "EPFR_AI_MODEL", "ministral-14b-latest"),
     ("ai_temperature", float, "EPFR_AI_TEMPERATURE", "non_negative_float"),
     ("ai_timeout", int, "EPFR_AI_TIMEOUT", "positive_int"),
     ("ai_max_retries", int, "EPFR_AI_MAX_RETRIES", "positive_int"),
