@@ -303,8 +303,6 @@ class TestRealDocFiles:
 
         docx_calls = []
 
-        original_Document = converter.Document
-
         def failing_Document(path):
             docx_calls.append(path)
             raise Exception("not a docx")
