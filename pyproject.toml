@@ -23,8 +23,8 @@ ignore = ["E501", "E712"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "D100"]
-"src/workflows/start.py" = ["E402"]
-"src/discover.py" = ["E402"]
+"epfr-downloader/src/workflows/start.py" = ["E402"]
+"epfr-downloader/src/discover.py" = ["E402"]
 "src/migrations/**" = ["E101", "W", "E"]
 
 [tool.ruff.lint.isort]

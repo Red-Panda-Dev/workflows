@@ -6,14 +6,13 @@ install-style:
 
 # Run Python code style and import checks without modifying files
 lint:
-	ruff format centraldepo-parser/ --check
-	ruff check centraldepo-parser/
+	cd epfr-downloader && uv run ruff format src/ --check
+	cd epfr-downloader && uv run ruff check src/
 
 type-check:
-	uv run ty check centraldepo-parser/
+	uv run ty check epfr-downloader/
 
 # Automatically refactor Python code: remove unused imports/vars and format
 refactor: install-style
-	ruff check --fix --unsafe-fixes \
-				centraldepo-parser/
-	ruff format centraldepo-parser/
+	cd epfr-downloader && uv run ruff check --fix src/
+	cd epfr-downloader && uv run ruff format src/
