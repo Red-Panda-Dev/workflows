@@ -11,7 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .config import load_epfr_config, require_mistral_api_key
 from .models import (
@@ -203,6 +203,14 @@ def _validate_and_correct_dates(
             payment_date = _safe_replace_year(payment_date, corrected_dates_year)
             autofilled.append("dates_year_corrected")
 
+    # Final ordering guard: ensure decision_date >= record_date and payment_date > decision_date.
+    if decision_date < record_date:
+        record_date = decision_date
+        autofilled.append("record_date_corrected")
+    if payment_date <= decision_date:
+        payment_date = date.fromordinal(decision_date.toordinal() + 1)
+        autofilled.append("payment_date_corrected")
+
     return period_year, decision_date, record_date, payment_date
 
 
@@ -255,16 +263,34 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
         autofilled=autofilled,
     )
 
-    normalized = EpfrDividendEntry(
-        share_type=cast(ShareType, share_type),
-        period_year=period_year,
-        period_type=cast(PeriodType, period_type),
-        period_number=period_number,
-        amount_per_share=amount,
-        decision_date=decision_date,
-        record_date=record_date,
-        payment_date=payment_date,
-    )
+    try:
+        normalized = EpfrDividendEntry(
+            share_type=cast(ShareType, share_type),
+            period_year=period_year,
+            period_type=cast(PeriodType, period_type),
+            period_number=period_number,
+            amount_per_share=amount,
+            decision_date=decision_date,
+            record_date=record_date,
+            payment_date=payment_date,
+        )
+    except ValidationError:
+        if payment_date <= decision_date:
+            payment_date = date.fromordinal(decision_date.toordinal() + 1)
+            autofilled.append("payment_date_corrected")
+        if decision_date < record_date:
+            record_date = decision_date
+            autofilled.append("record_date_corrected")
+        normalized = EpfrDividendEntry(
+            share_type=cast(ShareType, share_type),
+            period_year=period_year,
+            period_type=cast(PeriodType, period_type),
+            period_number=period_number,
+            amount_per_share=amount,
+            decision_date=decision_date,
+            record_date=record_date,
+            payment_date=payment_date,
+        )
     return normalized, autofilled
 
 
