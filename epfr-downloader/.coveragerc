@@ -3,6 +3,7 @@ omit =
     */tests/*
     src/discover.py
     src/workflows/start.py
+    src/workflows/epfr/tests/test_pdf_ocr.py
 
 include =
     src/workflows/epfr/*
@@ -12,6 +13,7 @@ omit =
     */tests/*
     src/discover.py
     src/workflows/start.py
+    src/workflows/epfr/tests/test_pdf_ocr.py
 
 include =
     src/workflows/epfr/*

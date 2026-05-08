@@ -30,6 +30,9 @@ refactor:
 
 ## Run tests
 test:
+	# NOTE: we intentionally skip test_pdf_ocr.py here. It exercises the Mistral OCR API
+	# and typically requires external credentials/quota; this makes CI runs flaky.
+	# Run it separately when you have stable API access.
 	uv run coverage run --rcfile=.coveragerc -m pytest src/ --verbose --showlocals --disable-warnings --ignore=src/workflows/epfr/tests/test_pdf_ocr.py && \
 	uv run coverage report --precision=3 --sort=cover --skip-empty --show-missing && \
 	uv run coverage html --precision=3 --skip-empty -d coverage/html/ && \
