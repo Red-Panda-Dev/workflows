@@ -269,3 +269,54 @@ def test_normalize_and_fill_dividend_handles_leap_day_when_bumping_year(monkeypa
     assert normalized.record_date == date(2025, 2, 28)
     assert normalized.payment_date == date(2025, 3, 29)
     assert "dates_year_corrected" in autofilled
+
+
+def test_normalize_and_fill_dividend_corrects_payment_date_when_same_as_decision_date():
+    raw = _RawDividendEntry(
+        period_year=2025,
+        period_type="quarterly",
+        period_number=1,
+        amount_per_share="1.0",
+        decision_date="2025-04-10",
+        record_date="2025-04-05",
+        payment_date="2025-04-10",
+    )
+
+    normalized, autofilled = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+
+    assert normalized.payment_date == date(2025, 4, 11)
+    assert "payment_date_corrected" in autofilled
+
+
+def test_normalize_and_fill_dividend_corrects_payment_date_when_before_decision_date():
+    raw = _RawDividendEntry(
+        period_year=2025,
+        period_type="quarterly",
+        period_number=1,
+        amount_per_share="1.0",
+        decision_date="2025-04-10",
+        record_date="2025-04-05",
+        payment_date="2025-03-01",
+    )
+
+    normalized, autofilled = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+
+    assert normalized.payment_date == date(2025, 4, 11)
+    assert "payment_date_corrected" in autofilled
+
+
+def test_normalize_and_fill_dividend_corrects_record_date_when_after_decision_date():
+    raw = _RawDividendEntry(
+        period_year=2025,
+        period_type="quarterly",
+        period_number=1,
+        amount_per_share="1.0",
+        decision_date="2025-04-10",
+        record_date="2025-05-20",
+        payment_date="2025-06-10",
+    )
+
+    normalized, autofilled = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+
+    assert normalized.record_date == date(2025, 4, 10)
+    assert "record_date_corrected" in autofilled
