@@ -6,8 +6,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from .. import converter
 from ..converter import _table_to_md, convert_to_markdown
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class TestConvertToMarkdown:
@@ -207,3 +211,111 @@ def test_table_to_md_flattens_ragged_border_columns():
         "О выплате дивидендов по акциям за 1-й квартал 2026 год:\n"
         'Полное наименование акционерного общества | Открытое акционерное общество "Объединение "Лотос"'
     )
+
+
+class TestRealDocFiles:
+    """Integration tests using real EPFR files captured from production.
+
+    Both fixtures are OLE2 Excel workbooks (created by Microsoft Excel) that
+    were saved with a ``.doc`` extension by the issuer. They exercise the xlrd
+    fallback path added to ``_extract_doc``.
+    """
+
+    @pytest.fixture()
+    def dividends_doc(self) -> Path:
+        """OLE2 Excel dividend-disclosure file (record 140243, UNP 200019375)."""
+        return FIXTURES / "ole2_excel_as_doc_dividends.doc"
+
+    @pytest.fixture()
+    def sectors_doc(self) -> Path:
+        """OLE2 Excel sector-rate table file (record 140651, UNP 700332293)."""
+        return FIXTURES / "ole2_excel_as_doc_sectors.doc"
+
+    def test_dividends_doc_converts_successfully(self, dividends_doc: Path, tmp_path: Path):
+        dest = tmp_path / dividends_doc.name
+        dest.write_bytes(dividends_doc.read_bytes())
+
+        success, content, error, md_path = convert_to_markdown(dest)
+
+        assert success is True
+        assert error is None
+        assert md_path is not None
+        assert md_path.suffix == ".md"
+        assert md_path.exists()
+
+    def test_dividends_doc_contains_expected_text(self, dividends_doc: Path, tmp_path: Path):
+        dest = tmp_path / dividends_doc.name
+        dest.write_bytes(dividends_doc.read_bytes())
+
+        _, content, _, _ = convert_to_markdown(dest)
+
+        assert content is not None
+        assert "ИнТриз" in content
+        assert "дивидендов" in content
+        assert "2025" in content
+
+    def test_dividends_doc_produces_markdown_table(self, dividends_doc: Path, tmp_path: Path):
+        dest = tmp_path / dividends_doc.name
+        dest.write_bytes(dividends_doc.read_bytes())
+
+        _, content, _, _ = convert_to_markdown(dest)
+
+        assert content is not None
+        # xlrd fallback renders rows as pipe-delimited Markdown
+        assert "|" in content
+
+    def test_sectors_doc_converts_successfully(self, sectors_doc: Path, tmp_path: Path):
+        dest = tmp_path / sectors_doc.name
+        dest.write_bytes(sectors_doc.read_bytes())
+
+        success, content, error, md_path = convert_to_markdown(dest)
+
+        assert success is True
+        assert error is None
+        assert md_path is not None
+        assert md_path.exists()
+
+    def test_sectors_doc_contains_expected_text(self, sectors_doc: Path, tmp_path: Path):
+        dest = tmp_path / sectors_doc.name
+        dest.write_bytes(sectors_doc.read_bytes())
+
+        _, content, _, _ = convert_to_markdown(dest)
+
+        assert content is not None
+        assert "Сельское" in content
+        assert "промышленность" in content
+
+    def test_sectors_doc_rows_are_pipe_delimited(self, sectors_doc: Path, tmp_path: Path):
+        dest = tmp_path / sectors_doc.name
+        dest.write_bytes(sectors_doc.read_bytes())
+
+        _, content, _, _ = convert_to_markdown(dest)
+
+        assert content is not None
+        rows = [line for line in content.splitlines() if line.strip()]
+        # Every data row must be a pipe-delimited Markdown row
+        assert all("|" in row for row in rows)
+
+    def test_real_doc_not_extracted_by_python_docx(self, dividends_doc: Path, tmp_path: Path, monkeypatch):
+        """python-docx and docx2txt should fail; xlrd must carry the conversion."""
+        dest = tmp_path / dividends_doc.name
+        dest.write_bytes(dividends_doc.read_bytes())
+
+        docx_calls = []
+
+        original_Document = converter.Document
+
+        def failing_Document(path):
+            docx_calls.append(path)
+            raise Exception("not a docx")
+
+        monkeypatch.setattr(converter, "Document", failing_Document)
+        monkeypatch.setattr(converter.docx2txt, "process", lambda _: (_ for _ in ()).throw(Exception("not docx2txt")))
+        # Keep xlrd intact — conversion must still succeed via _extract_xls fallback
+        monkeypatch.setattr(shutil, "which", lambda _name: None)  # block antiword/catdoc/soffice
+
+        success, content, error, _ = convert_to_markdown(dest)
+
+        assert len(docx_calls) == 1, "python-docx should have been tried once"
+        assert success is True
+        assert "ИнТриз" in (content or "")

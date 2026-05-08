@@ -91,7 +91,8 @@ def _extract_doc(file_path: Path) -> str:
     """Extract text from a legacy DOC disclosure document.
 
     Some EPFR records use misleading extensions, so the converter tries OOXML
-    readers first, then binary DOC tools, then common text encodings.
+    readers first, then xlrd (for OLE2 Excel files mislabelled as .doc),
+    then binary DOC tools, then LibreOffice as a last resort.
 
     Args:
         file_path: Path to the downloaded DOC file.
@@ -111,6 +112,13 @@ def _extract_doc(file_path: Path) -> str:
 
     try:
         return docx2txt.process(file_path)
+    except Exception:
+        pass
+
+    # Some files have a .doc extension but are actually OLE2 Excel workbooks.
+    # xlrd handles both OLE2 (.xls) and mislabelled .doc Excel files.
+    try:
+        return _extract_xls(file_path)
     except Exception:
         pass
 
