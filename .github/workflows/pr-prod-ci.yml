@@ -1,4 +1,4 @@
-name: Tests CI
+name: Main Branch CI
 
 on:
   push:
@@ -22,17 +22,13 @@ jobs:
           python-version: "3.14.3"
 
       - name: Install dependencies
-        run: uv sync
+        run: make installdeps
 
       - name: Run lint
         run: make lint
 
       - name: Run tests with coverage
-        run: |
-          uv run coverage run --rcfile=.coveragerc -m pytest src/ --verbose --showlocals --disable-warnings \
-            --ignore=src/workflows/epfr/tests/test_pdf_ocr.py && \
-          uv run coverage report --precision=3 --sort=cover --skip-empty --show-missing && \
-          uv run coverage xml -o coverage/coverage.xml
+        run: make test
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
