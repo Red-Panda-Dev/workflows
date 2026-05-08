@@ -1,5 +1,7 @@
 # workflows
 
+[![codecov](https://codecov.io/gh/Red-Panda-Dev/workflows/graph/badge.svg?token=dja7aJDjA9)](https://codecov.io/gh/Red-Panda-Dev/workflows)
+
 Python workspace for a [Mistral AI Workflows](https://docs.mistral.ai/workflows/getting-started/introduction) project that automates downloading and processing dividend disclosure records from Belarusian regulator APIs.
 
 | Project | Source | Pipeline |
