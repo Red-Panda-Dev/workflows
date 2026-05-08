@@ -1,0 +1,144 @@
+{
+  "600073968": [
+    {
+      "share_uuid": "76e720e1",
+      "period_year": 2026,
+      "period_type": "quarterly",
+      "period_number": 1,
+      "amount_per_share": "46.73",
+      "decision_date": "2026-05-04",
+      "record_date": "2026-04-04",
+      "payment_date": "2026-07-10"
+    }
+  ],
+  "200100116": [
+    {
+      "share_uuid": "c16b0227",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.31865",
+      "decision_date": "2026-03-20",
+      "record_date": "2026-02-20",
+      "payment_date": "2026-04-22"
+    }
+  ],
+  "591867699": [
+    {
+      "share_uuid": "1ced04f8",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.0270978",
+      "decision_date": "2026-03-31",
+      "record_date": "2026-02-28",
+      "payment_date": "2026-04-22"
+    }
+  ],
+  "700107602": [
+    {
+      "share_uuid": "f1e583c8",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.8",
+      "decision_date": "2026-03-30",
+      "record_date": "2026-02-28",
+      "payment_date": "2026-04-22"
+    }
+  ],
+  "700160772": [
+    {
+      "share_uuid": "f6ba014b",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.0029012",
+      "decision_date": "2026-03-31",
+      "record_date": "2026-02-28",
+      "payment_date": "2026-04-22"
+    },
+    {
+      "share_uuid": "f6ba014b",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.0029012",
+      "decision_date": "2026-03-31",
+      "record_date": "2026-02-28",
+      "payment_date": "2026-04-22"
+    }
+  ],
+  "400053193": [
+    {
+      "share_uuid": "c4bdbe76",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.00035",
+      "decision_date": "2026-03-26",
+      "record_date": "2026-02-26",
+      "payment_date": "2026-12-31"
+    }
+  ],
+  "300082076": [
+    {
+      "share_uuid": "c72add2d",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0",
+      "decision_date": "2026-04-25",
+      "record_date": "2026-03-25",
+      "payment_date": "2026-04-26"
+    }
+  ],
+  "101349508": [
+    {
+      "share_uuid": "5a34e878",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.09411837",
+      "decision_date": "2026-03-26",
+      "record_date": "2026-02-26",
+      "payment_date": "2026-10-01"
+    }
+  ],
+  "300009076": [
+    {
+      "share_uuid": "f06e7226",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.00017402",
+      "decision_date": "2026-03-26",
+      "record_date": "2026-02-26",
+      "payment_date": "2026-05-26"
+    }
+  ],
+  "600154407": [
+    {
+      "share_uuid": "793a4216",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "0.000003",
+      "decision_date": "2026-03-30",
+      "record_date": "2026-02-28",
+      "payment_date": "2026-04-22"
+    }
+  ],
+  "100152790": [
+    {
+      "share_uuid": "1e2f04dd",
+      "period_year": 2025,
+      "period_type": "annual",
+      "period_number": 1,
+      "amount_per_share": "20.48",
+      "decision_date": "2026-04-22",
+      "record_date": "2026-03-22",
+      "payment_date": "2026-06-30"
+    }
+  ]
+}

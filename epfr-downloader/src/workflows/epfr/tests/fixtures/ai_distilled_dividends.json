@@ -1,0 +1,720 @@
+{
+  "600073968": {
+    "company_name": "Открытое акционерное общество \"ЭНЭФ\"",
+    "unp": "600073968",
+    "holder_id": 3044,
+    "files": [
+      {
+        "id": 141278,
+        "file_path": "output/600073968/141278.md",
+        "filename": "141278.md",
+        "original_name": "Выплата дивидендов за I кв. 2026г.",
+        "upload_date": "2026-05-04",
+        "extracted_from": null,
+        "converted_from": "141278.pdf",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares and an explicit zero dividend for preferred shares for Q1 2026. The decision date was ambiguous (two dates listed: 20.03.2026 and 04.05.2026); the latest date (04.05.2026) was selected as the decision date. The payment date was calculated as the end of the 3-month payment period after the reporting period (Q1 2026 ends 31.03.2026), resulting in a final payment deadline of 2026-06-10.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2026,
+            "period_type": "quarterly",
+            "period_number": 1,
+            "amount_per_share": "46.73",
+            "decision_date": "2026-05-04",
+            "record_date": "2026-04-04",
+            "payment_date": "2026-06-10"
+          },
+          {
+            "share_type": "preferred",
+            "period_year": 2026,
+            "period_type": "quarterly",
+            "period_number": 1,
+            "amount_per_share": "0",
+            "decision_date": "2026-05-04",
+            "record_date": "2026-04-04",
+            "payment_date": "2026-05-05"
+          }
+        ],
+        "autofilled_fields": [
+          "payment_date",
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "200100116": {
+    "company_name": "Открытое акционерное общество \"Победа\"",
+    "unp": "200100116",
+    "holder_id": 9899,
+    "files": [
+      {
+        "id": 141054,
+        "file_path": "output/200100116/141054.md",
+        "filename": "141054.md",
+        "original_name": "Победа ОАО 200100116 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-30",
+        "extracted_from": "141054.zip",
+        "converted_from": "141054.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The decision date, payment date, and amount per share were explicitly stated. Preferred shares had no extractable amount, so only the common share entry is included.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.31865",
+            "decision_date": "2026-03-20",
+            "record_date": "2026-02-20",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "591867699": {
+    "company_name": "Открытое акционерное общество \"Первомайск-агро\"",
+    "unp": "591867699",
+    "holder_id": 7607,
+    "files": [
+      {
+        "id": 141013,
+        "file_path": "output/591867699/141013.md",
+        "filename": "141013.md",
+        "original_name": "Первомайск-агро ОАО 591867699 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-29",
+        "extracted_from": "141013.zip",
+        "converted_from": "141013.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares and an explicit zero dividend for preferred shares for the year 2025. Decision date and payment deadline were extracted.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.0270978",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          },
+          {
+            "share_type": "preferred",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "100104781": {
+    "company_name": "Открытое акционерное общество \"Дрожжевой комбинат\"-",
+    "unp": "100104781",
+    "holder_id": 6907,
+    "files": [
+      {
+        "id": 140911,
+        "file_path": "output/100104781/140911.md",
+        "filename": "140911.md",
+        "original_name": "Информация о выплате дивидендов за 2025 год ОАО \"Дрожжевой комбинат\"",
+        "upload_date": "2026-04-29",
+        "extracted_from": null,
+        "converted_from": "140911.pdf",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. Preferred shares have no extractable amount (dash). Two payment deadlines are provided: the latest one (2027-04-22) was selected as the payment_date for the dividend entry.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.007337",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-05-31"
+          }
+        ],
+        "autofilled_fields": [
+          "dates_year_corrected",
+          "payment_date_corrected",
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "400005858": {
+    "company_name": "Открытое акционерное общество \"Утевское\"",
+    "unp": "400005858",
+    "holder_id": 3001,
+    "files": [
+      {
+        "id": 140960,
+        "file_path": "output/400005858/140960.md",
+        "filename": "140960.md",
+        "original_name": "Информация о выплате дивидендов ОАО за 2025 год ОАО «Утевское»",
+        "upload_date": "2026-04-29",
+        "extracted_from": null,
+        "converted_from": "140960.pdf",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for the annual period of 2025. The amount per share is 0.001081 BYN, decision date is 2026-03-31, and payment date is 2026-04-22. Share type is assumed to be common as it is not specified.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.001081",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "700107602": {
+    "company_name": "Открытое акционерное общество \"Круглянская Искра\"",
+    "unp": "700107602",
+    "holder_id": 10902,
+    "files": [
+      {
+        "id": 140932,
+        "file_path": "output/700107602/140932.md",
+        "filename": "140932.md",
+        "original_name": "Круглянская Искра ОАО 700107602 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-29",
+        "extracted_from": "140932.zip",
+        "converted_from": "140932.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout of 0.80 BYN per common share for the year 2025. Decision date, payment date, and period were explicitly stated. Preferred shares have no extractable amount.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.8",
+            "decision_date": "2026-03-30",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "dates_year_corrected",
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "490314513": {
+    "company_name": "Открытое акционерное общество \"Ветковский агросервис\"",
+    "unp": "490314513",
+    "holder_id": 4060,
+    "files": [
+      {
+        "id": 141003,
+        "file_path": "output/490314513/141003.md",
+        "filename": "141003.md",
+        "original_name": "Ветковский агросервис ОАО 490314513 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-29",
+        "extracted_from": "141003.zip",
+        "converted_from": "141003.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The decision date, payment period, and amount per share were extracted. The latest payment deadline (01.05.2026) was used for payment_date. No amount was provided for preferred shares, so only the common share entry was created.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.00080186",
+            "decision_date": "2026-03-25",
+            "record_date": "2026-02-25",
+            "payment_date": "2026-05-01"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "300031971": {
+    "company_name": "Открытое акционерное общество \"Объединение \"Лотос\"",
+    "unp": "300031971",
+    "holder_id": 3860,
+    "files": [
+      {
+        "id": 140559,
+        "file_path": "output/300031971/140559.md",
+        "filename": "140559.md",
+        "original_name": "Объединение Лотос ОАО 300031971 Информация о выплате дивидендов за 1 кв. 2026г.",
+        "upload_date": "2026-04-27",
+        "extracted_from": "140559.zip",
+        "converted_from": "140559.xlsx",
+        "has_dividends": false,
+        "ai_comment": "",
+        "dividends": [],
+        "autofilled_fields": [],
+        "error": "ValidationError: 1 validation error for EpfrDividendEntry\n  Value error, payment_date must be greater than decision_date [type=value_error, input_value={'share_type': 'common', ...etime.date(2026, 4, 22)}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+      }
+    ]
+  },
+  "200038293": {
+    "company_name": "Открытое акционерное общество \"Ракитница\"",
+    "unp": "200038293",
+    "holder_id": 10835,
+    "files": [
+      {
+        "id": 140406,
+        "file_path": "output/200038293/140406.md",
+        "filename": "140406.md",
+        "original_name": "Ракитница ОАО 200038293 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-27",
+        "extracted_from": "140406.zip",
+        "converted_from": "140406.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The decision date, payment date, and amount per share were extracted. Preferred shares have no extractable amount.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.010145",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "500051102": {
+    "company_name": "Открытое акционерное общество \"Ивьевская сельхозтехника\"",
+    "unp": "500051102",
+    "holder_id": 3765,
+    "files": [
+      {
+        "id": 140549,
+        "file_path": "output/500051102/140549.md",
+        "filename": "140549.md",
+        "original_name": "Ивьевская сельхозтехника ОАО 500051102 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-27",
+        "extracted_from": "140549.zip",
+        "converted_from": "140549.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The decision date, payment period, and amount per share were extracted. Preferred shares had no extractable amount.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.0018699",
+            "decision_date": "2026-03-27",
+            "record_date": "2026-02-27",
+            "payment_date": "2026-04-30"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "700160772": {
+    "company_name": "Открытое акционерное общество \"Бытовые и полиграфические услуги \"Мстиславчанка\"",
+    "unp": "700160772",
+    "holder_id": 10674,
+    "files": [
+      {
+        "id": 140269,
+        "file_path": "output/700160772/140269.md",
+        "filename": "140269.md",
+        "original_name": "Бытовые и полиграфические услуги Мстиславчанка ОАО 700160772 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-25",
+        "extracted_from": "140269.zip",
+        "converted_from": "140269.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. Preferred shares have no extractable amount. Decision date and payment date were explicitly stated. Only common shares are included due to the absence of a clear amount for preferred shares.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.0029012",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      },
+      {
+        "id": 140269,
+        "file_path": "output/700160772/140269.md",
+        "filename": "140269.md",
+        "original_name": "Бытовые и полиграфические услуги Мстиславчанка ОАО 700160772 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-25",
+        "extracted_from": "140269.zip",
+        "converted_from": "140269.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares (0.0029012 BYN) for the annual period of 2025. Preferred shares have no extractable amount. Decision date and payment date were explicitly stated. Record date was not provided.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.0029012",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "400053193": {
+    "company_name": "Открытое акционерное общество \"Хальч\"",
+    "unp": "400053193",
+    "holder_id": 6827,
+    "files": [
+      {
+        "id": 140271,
+        "file_path": "output/400053193/140271.md",
+        "filename": "140271.md",
+        "original_name": "Хальч ОАО 400053193 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-25",
+        "extracted_from": "140271.zip",
+        "converted_from": "140271.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. Preferred shares have no extractable amount. Decision date and payment deadlines are explicitly stated, with different deadlines for state-owned and other shares; the latest deadline (2026-12-31) was used as the payment date.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.00035",
+            "decision_date": "2026-03-26",
+            "record_date": "2026-02-26",
+            "payment_date": "2026-12-31"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "300082076": {
+    "company_name": "Открытое акционерное общество \"Витебские ковры\"",
+    "unp": "300082076",
+    "holder_id": 6543,
+    "files": [
+      {
+        "id": 140364,
+        "file_path": "output/300082076/140364.md",
+        "filename": "140364.md",
+        "original_name": "О выплате дивидендов за 2025 год",
+        "upload_date": "2026-04-25",
+        "extracted_from": null,
+        "converted_from": "140364.pdf",
+        "has_dividends": false,
+        "ai_comment": "The document explicitly states a decision not to accrue or pay dividends for 2025 due to the absence of net profit. The decision date and reporting period were extracted.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0",
+            "decision_date": "2026-04-25",
+            "record_date": "2026-03-25",
+            "payment_date": "2026-04-26"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "100115340": {
+    "company_name": "Открытое акционерное общество \"ЗАВОД МИНСКАГРОПРОММАШ\"",
+    "unp": "100115340",
+    "holder_id": 10014,
+    "files": [
+      {
+        "id": 140397,
+        "file_path": "output/100115340/140397.md",
+        "filename": "140397.md",
+        "original_name": "Информация о выплате дивидендов по акциям ОАО \"ЗАВОД МИНСКАГРОПРОММАШ\"",
+        "upload_date": "2026-04-25",
+        "extracted_from": null,
+        "converted_from": "140397.pdf",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for the period January-March 2026 (Q1). The decision date, amount per share, and payment period were explicitly stated. Share type was not specified, so 'common' was used as default.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2026,
+            "period_type": "quarterly",
+            "period_number": 1,
+            "amount_per_share": "0.011073",
+            "decision_date": "2026-04-22",
+            "record_date": "2026-03-22",
+            "payment_date": "2026-06-19"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "101349508": {
+    "company_name": "Открытое акционерное общество \"Центр банковских технологий\"",
+    "unp": "101349508",
+    "holder_id": 9999,
+    "files": [
+      {
+        "id": 140394,
+        "file_path": "output/101349508/140394.md",
+        "filename": "140394.md",
+        "original_name": "Информация о выплате дивидендов ",
+        "upload_date": "2026-04-25",
+        "extracted_from": "140394.zip",
+        "converted_from": "140394.docx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout of 0.09411837 BYN per common share for the annual period of 2025. The decision date is 2026-03-26, and the latest payment deadline is 2026-10-01. Preferred shares are not issued, so only the common share entry is included.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.09411837",
+            "decision_date": "2026-03-26",
+            "record_date": "2026-02-26",
+            "payment_date": "2026-10-01"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "300009076": {
+    "company_name": "Открытое акционерное общество \"Маяк Высокое\"",
+    "unp": "300009076",
+    "holder_id": 10252,
+    "files": [
+      {
+        "id": 140399,
+        "file_path": "output/300009076/140399.md",
+        "filename": "140399.md",
+        "original_name": "Маяк Высокое ОАО 300009076 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-25",
+        "extracted_from": "140399.zip",
+        "converted_from": "140399.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The preferred shares section is empty, so only the common share entry is included. Decision date and payment period are explicitly stated.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.00017402",
+            "decision_date": "2026-03-26",
+            "record_date": "2026-02-26",
+            "payment_date": "2026-05-26"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "200216323": {
+    "company_name": "Открытое акционерное общество \"Орепичи\"",
+    "unp": "200216323",
+    "holder_id": 10743,
+    "files": [
+      {
+        "id": 140235,
+        "file_path": "output/200216323/140235.md",
+        "filename": "140235.md",
+        "original_name": "Орепичи ОАО 200216323 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-24",
+        "extracted_from": "140235.zip",
+        "converted_from": "140235.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The decision date, payment date, and amount per share were explicitly stated. Preferred shares had no extractable amount.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "1.012218",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "700161222": {
+    "company_name": "Открытое акционерное общество \"Агросервис\", г.Чаусы",
+    "unp": "700161222",
+    "holder_id": 10081,
+    "files": [
+      {
+        "id": 140078,
+        "file_path": "output/700161222/140078.md",
+        "filename": "140078.md",
+        "original_name": "Агросервис, г. Чаусы ОАО 700161222 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-24",
+        "extracted_from": "140078.zip",
+        "converted_from": "140078.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares for the year 2025. The decision date, payment date, and amount per share were explicitly stated. Preferred shares had no extractable amount.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.00091",
+            "decision_date": "2026-03-31",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "600154407": {
+    "company_name": "Открытое акционерное общество \"Слуцкая фабрика пошива одежды\"",
+    "unp": "600154407",
+    "holder_id": 6405,
+    "files": [
+      {
+        "id": 140037,
+        "file_path": "output/600154407/140037.md",
+        "filename": "140037.md",
+        "original_name": "Слуцкая фабрика пошива одежды ОАО 600154407 Информация о выплате дивидендов за 2025г.",
+        "upload_date": "2026-04-23",
+        "extracted_from": "140037.zip",
+        "converted_from": "140037.xlsx",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares (0.0003 BYN per share, normalized from 0,0003 копеек). Preferred shares have no extractable amount. The period is annual for 2025, decision date is 2026-03-30, and payment date is 2026-04-22.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.000003",
+            "decision_date": "2026-03-30",
+            "record_date": "2026-02-28",
+            "payment_date": "2026-04-22"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  },
+  "100152790": {
+    "company_name": "Закрытое акционерное общество \"ХЦ-ПОЛИНОВОТЕХ\"",
+    "unp": "100152790",
+    "holder_id": 9733,
+    "files": [
+      {
+        "id": 139979,
+        "file_path": "output/100152790/139979.md",
+        "filename": "139979.md",
+        "original_name": "Информация о выплате дивидендов по акциям ЗАО \"ХЦ-ПОЛИНОВОТЕХ\"",
+        "upload_date": "2026-04-23",
+        "extracted_from": null,
+        "converted_from": "139979.pdf",
+        "has_dividends": true,
+        "ai_comment": "The document confirms a positive dividend payout for common shares. The amount per share is 20.48 BYN, decision date is 2026-04-22, and payment period is from 2026-04-23 to 2026-06-30. The period year is inferred as 2025 (previous year relative to decision date) with an annual period type.",
+        "dividends": [
+          {
+            "share_type": "common",
+            "period_year": 2025,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "20.48",
+            "decision_date": "2026-04-22",
+            "record_date": "2026-03-22",
+            "payment_date": "2026-06-30"
+          }
+        ],
+        "autofilled_fields": [
+          "record_date"
+        ],
+        "error": null
+      }
+    ]
+  }
+}
