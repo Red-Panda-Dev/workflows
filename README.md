@@ -42,6 +42,30 @@ cd epfr-downloader && make start-worker
 cd epfr-downloader && make execute input='{"max_pages": 2, "date_from": "2026-03-01"}'
 ```
 
+### Run with Docker
+
+Build and run the EPFR workflow worker container from `epfr-downloader/`:
+
+```bash
+cd epfr-downloader
+make docker-build
+make docker-run
+```
+
+The container mounts a volume from host `epfr-downloader/output` to container `/app/output`:
+
+- Host: `$(pwd)/output`
+- Container: `/app/output`
+
+This volume stores downloaded files and generated JSON outputs (`unp_file_mapping.json`, `ai_distilled_dividends.json`) outside the container filesystem.
+
+If you need to restart the worker container:
+
+```bash
+docker rm -f epfr-worker
+cd epfr-downloader && make docker-run
+```
+
 ## Validation
 
 ```bash
