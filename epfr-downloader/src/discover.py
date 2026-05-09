@@ -36,10 +36,14 @@ def scan_package(package_name: str, package_path: Sequence[str], discovered: lis
         discovered: List to append discovered workflow classes to.
     """
     for _, modname, ispkg in pkgutil.iter_modules(package_path, prefix=f"{package_name}."):
+        # Skip test modules/packages — they import workflow classes at module level
+        # and would cause duplicate registrations with the same workflow name.
+        if ".tests" in modname or modname.endswith(".tests"):
+            continue
         try:
             module = importlib.import_module(modname)
             for _, obj in inspect.getmembers(module, inspect.isclass):
-                if hasattr(obj, "__workflows_workflow_def"):
+                if hasattr(obj, "__workflows_workflow_def") and obj not in discovered:
                     discovered.append(obj)
 
             if ispkg:
