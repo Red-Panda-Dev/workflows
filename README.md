@@ -2,7 +2,11 @@
 
 [![codecov](https://codecov.io/gh/Red-Panda-Dev/workflows/graph/badge.svg?token=dja7aJDjA9)](https://codecov.io/gh/Red-Panda-Dev/workflows)
 
-Python workspace for a [Mistral AI Workflows](https://docs.mistral.ai/workflows/getting-started/introduction) project that automates downloading and processing dividend disclosure records from Belarusian regulator APIs.
+**Open-source solution for collecting dividend disclosure information about Belarusian shares.**
+
+Built on [Mistral AI Workflows](https://docs.mistral.ai/workflows/getting-started/introduction) and powered by [Mistral AI models](https://docs.mistral.ai/getting-started/models/models_overview/) — this project automates the entire pipeline from downloading raw disclosure records from the Belarusian regulator to producing structured, machine-readable dividend data.
+
+Developed by the [TokenBel](https://tokenbel.info/) team — check out the [Belarusian shares dashboard](https://dashboard.tokenbel.info/shares/) powered by this data.
 
 | Project | Source | Pipeline |
 |---------|--------|----------|
