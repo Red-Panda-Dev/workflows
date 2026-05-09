@@ -11,6 +11,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
+from mistralai.client import Mistral as MistralClient
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import load_epfr_config, require_mistral_api_key
@@ -50,8 +51,6 @@ class AIDistiller:
     """Reusable Mistral chat.parse client for EPFR dividend extraction."""
 
     def __init__(self, model_name: str, temperature: float, reference_date: str) -> None:
-        from mistralai.client import Mistral as MistralClient
-
         logger.info(
             f"Initializing AIDistiller: model={model_name}, temperature={temperature}, reference_date={reference_date}"
         )
