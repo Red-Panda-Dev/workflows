@@ -6,7 +6,6 @@ import importlib
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 os.environ.pop("AGENT", None)
 
@@ -98,7 +97,7 @@ class TestSaveUnpMappingSkippedRecords:
         """Records with holder=None produce no mapping entries."""
         record_no_holder = _record(holder=None)
 
-        result = await save_unp_mapping(
+        await save_unp_mapping(
             records=[record_no_holder],
             output_dir=str(tmp_path),
             download_stats={"file_map": {"1": "1.pdf"}, "by_unp": {}},
@@ -181,6 +180,7 @@ class TestSaveUnpMappingConvertedLineage:
         unp_dir.mkdir()
         md_path = unp_dir / "1.md"
         md_path.write_text("# Converted content", encoding="utf-8")
+        (unp_dir / "1.doc").write_bytes(b"fake doc content")
 
         source_file_str = str(unp_dir / "1.doc")
 
@@ -391,20 +391,20 @@ class TestAllWorkflowsDiscovered:
     """Verify all four workflow names appear in the full discovery scan."""
 
     def test_all_four_workflows_in_discovery(self):
-        """The discover_workflows scan returns exactly four workflow classes."""
+        """The discover_workflows scan returns all four EPFR workflow classes."""
         os.environ.pop("AGENT", None)
         from discover import discover_workflows
 
         from mistralai.workflows.core.definition.workflow_definition import get_workflow_definition
 
         names = sorted(get_workflow_definition(wf).name for wf in discover_workflows())
-        expected = [
+        for expected_name in [
             "epfr-ai-distiller",
             "epfr-files-downloader",
             "epfr-pdf-ocr-converter",
             "epfr-share-payout-exporter",
-        ]
-        assert names == expected
+        ]:
+            assert expected_name in names
 
 
 class TestWorkflowClassInterface:

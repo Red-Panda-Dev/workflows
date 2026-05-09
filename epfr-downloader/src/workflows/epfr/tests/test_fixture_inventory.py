@@ -78,3 +78,54 @@ def test_fixture_helpers_use_utf8_and_do_not_mutate_committed_files(
 def test_missing_fixture_reports_name(load_epfr_fixture_json: Callable[[str], Any]):
     with pytest.raises(FileNotFoundError, match="missing.fixture"):
         load_epfr_fixture_json("missing.fixture")
+
+
+FIXTURE_TO_TEST_MODULE: dict[str, list[str]] = {
+    "epfr_api_response_null_subcategory.json": [
+        "test_models.py",
+        "test_client.py",
+    ],
+    "ole2_excel_as_doc_dividends.doc": [
+        "test_converter.py",
+    ],
+    "ole2_excel_as_doc_sectors.doc": [
+        "test_converter.py",
+    ],
+    "unp_file_mapping.json": [
+        "test_models.py",
+        "test_pdf_ocr_mapping.py",
+        "test_ai_distiller.py",
+    ],
+    "140911.md": [
+        "test_markdown_cleanup.py",
+        "test_ai_distiller.py",
+    ],
+    "140297.md": [
+        "test_markdown_cleanup.py",
+        "test_ai_distiller.py",
+    ],
+    "ai_distilled_dividends.json": [
+        "test_models.py",
+        "test_share_payout_exporter.py",
+    ],
+    "share_payouts_by_unp.json": [
+        "test_models.py",
+        "test_share_payout_exporter.py",
+    ],
+}
+
+
+def test_fixture_audit_all_fixtures_mapped_to_tests():
+    """Every required fixture has at least one test module mapping."""
+    for fixture_name in REQUIRED_REAL_WORLD_FIXTURES:
+        assert fixture_name in FIXTURE_TO_TEST_MODULE, f"Fixture {fixture_name!r} has no test module mapping"
+
+
+def test_fixture_audit_all_test_modules_exist():
+    """All referenced test modules exist in the test directory."""
+    test_dir = Path(__file__).parent
+    for fixture_name, modules in FIXTURE_TO_TEST_MODULE.items():
+        for module_name in modules:
+            assert (test_dir / module_name).is_file(), (
+                f"Test module {module_name!r} for fixture {fixture_name!r} does not exist"
+            )
