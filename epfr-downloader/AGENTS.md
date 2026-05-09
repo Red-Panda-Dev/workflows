@@ -36,7 +36,7 @@ src/
         ├── workflow.py              # epfr-files-downloader workflow + 5 activities (main pipeline)
         ├── prompts/                 # Prompt templates for AI distillation
         │   └── dividends_parsing.md
-        └── tests/                   # Unit tests
+        └── tests/                   # Unit tests (7 modules)
             ├── test_client.py       # Client and download logic tests
             ├── test_converter.py    # Document conversion tests
             ├── test_detector.py     # Magic-byte detection tests
@@ -71,7 +71,7 @@ generate_sql.py                      # Standalone: share_payouts_by_unp.json →
 - **Adding new magic-byte signatures:** Edit `detector.py:SIGNATURES`. Keep the list ordered — first match wins.
 - **Changing archive extraction:** Edit `extractor.py`. New archive extensions go in `ARCHIVE_EXTENSIONS`. New OOXML markers go in `OOXML_MARKERS` / `OOXML_EXTENSION_MAP`.
 - **Changing document conversion:** Edit `converter.py`. Supports docx, doc, xls, xlsx. New types go in the extension dispatch.
-- **Changing markdown cleanup:** Edit `markdown_cleanup.py`. Affects converter and OCR pipelines.
+- **Changing markdown cleanup:** Edit `markdown_cleanup.py`. Affects both converter and OCR pipelines.
 - **Changing PDF OCR behavior:** Edit `pdf_ocr.py`. OCR model and concurrency in `config.py` (`OCR_MODEL`, `MAX_CONCURRENT_OCR`, `MAX_PDF_SIZE_BYTES`).
 - **Changing AI distillation:** Edit `ai_distiller.py`. Model and retry tuning in `config.py` (`AI_MODEL`, `AI_MAX_RETRIES`, etc.). Prompt template at `prompts/dividends_parsing.md`.
 - **Changing share payout export:** Edit `share_payout_exporter.py`. Config constants in `config.py`.
