@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from .. import pdf_ocr
+from workflows.epfr import pdf_ocr
 
 
 class _FakePage:

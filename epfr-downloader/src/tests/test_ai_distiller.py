@@ -9,15 +9,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from .. import ai_distiller
-from ..ai_distiller import (
+from workflows.epfr import ai_distiller
+from workflows.epfr.ai_distiller import (
     AIDistiller,
     _RawDividendEntry,
     _RawExtraction,
     _load_prompt_template,
     normalize_and_fill_dividend,
 )
-from ..models import EpfrAiDistillerInput, EpfrDividendEntry
+from workflows.epfr.models import EpfrAiDistillerInput, EpfrDividendEntry
 
 
 def test_normalize_and_fill_dividend_autofills_dates_and_period_fields():

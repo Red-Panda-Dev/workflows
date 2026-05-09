@@ -4,7 +4,7 @@
 
 from uuid import UUID
 
-from ..detector import UNKNOWN_EXTENSION, build_filename, detect_file_extension
+from workflows.epfr.detector import UNKNOWN_EXTENSION, build_filename, detect_file_extension
 
 
 class TestDetectFileExtension:

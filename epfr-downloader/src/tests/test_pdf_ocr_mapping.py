@@ -43,8 +43,7 @@ def _make_package_module(name: str) -> types.ModuleType:
 
 @pytest.fixture()
 def pdf_ocr_module(monkeypatch) -> Iterator[types.ModuleType]:
-    package_name = __package__ or "workflows.epfr.tests"
-    target_module_name = f"{package_name.rsplit('.', 1)[0]}.pdf_ocr"
+    target_module_name = "workflows.epfr.pdf_ocr"
     original_pdf_ocr = sys.modules.pop(target_module_name, None)
 
     mistralai_module = _make_package_module("mistralai")

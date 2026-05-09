@@ -9,8 +9,8 @@ from pathlib import Path
 
 os.environ.pop("AGENT", None)
 
-from ..models import EpfrRecord, Holder
-from ..workflow import EpfrFilesDownloader, save_unp_mapping
+from workflows.epfr.models import EpfrRecord, Holder
+from workflows.epfr.workflow import EpfrFilesDownloader, save_unp_mapping
 
 pytest = importlib.import_module("pytest")
 
@@ -367,21 +367,21 @@ class TestWorkflowDiscovery:
 
     def test_pdf_ocr_converter_discoverable(self):
         """EpfrPdfOcrConverter has the discovery attribute and correct name."""
-        from ..pdf_ocr_workflow import EpfrPdfOcrConverter
+        from workflows.epfr.pdf_ocr_workflow import EpfrPdfOcrConverter
 
         assert hasattr(EpfrPdfOcrConverter, "__workflows_workflow_def")
         assert self._get_workflow_name(EpfrPdfOcrConverter) == "epfr-pdf-ocr-converter"
 
     def test_ai_distiller_discoverable(self):
         """EpfrAiDistillerWorkflow has the discovery attribute and correct name."""
-        from ..ai_distiller_workflow import EpfrAiDistillerWorkflow
+        from workflows.epfr.ai_distiller_workflow import EpfrAiDistillerWorkflow
 
         assert hasattr(EpfrAiDistillerWorkflow, "__workflows_workflow_def")
         assert self._get_workflow_name(EpfrAiDistillerWorkflow) == "epfr-ai-distiller"
 
     def test_share_payout_exporter_discoverable(self):
         """EpfrSharePayoutExporterWorkflow has the discovery attribute and correct name."""
-        from ..share_payout_exporter_workflow import EpfrSharePayoutExporterWorkflow
+        from workflows.epfr.share_payout_exporter_workflow import EpfrSharePayoutExporterWorkflow
 
         assert hasattr(EpfrSharePayoutExporterWorkflow, "__workflows_workflow_def")
         assert self._get_workflow_name(EpfrSharePayoutExporterWorkflow) == "epfr-share-payout-exporter"
@@ -415,19 +415,19 @@ class TestWorkflowClassInterface:
         assert callable(getattr(EpfrFilesDownloader, "run", None))
 
     def test_pdf_ocr_has_run_method(self):
-        from ..pdf_ocr_workflow import EpfrPdfOcrConverter
+        from workflows.epfr.pdf_ocr_workflow import EpfrPdfOcrConverter
 
         assert hasattr(EpfrPdfOcrConverter, "run")
         assert callable(getattr(EpfrPdfOcrConverter, "run", None))
 
     def test_ai_distiller_has_run_method(self):
-        from ..ai_distiller_workflow import EpfrAiDistillerWorkflow
+        from workflows.epfr.ai_distiller_workflow import EpfrAiDistillerWorkflow
 
         assert hasattr(EpfrAiDistillerWorkflow, "run")
         assert callable(getattr(EpfrAiDistillerWorkflow, "run", None))
 
     def test_share_payout_exporter_has_run_method(self):
-        from ..share_payout_exporter_workflow import EpfrSharePayoutExporterWorkflow
+        from workflows.epfr.share_payout_exporter_workflow import EpfrSharePayoutExporterWorkflow
 
         assert hasattr(EpfrSharePayoutExporterWorkflow, "run")
         assert callable(getattr(EpfrSharePayoutExporterWorkflow, "run", None))

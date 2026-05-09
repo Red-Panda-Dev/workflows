@@ -8,8 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .. import converter
-from ..converter import _table_to_md, convert_all_files, convert_to_markdown, convert_unp_files
+from workflows.epfr import converter
+from workflows.epfr.converter import _table_to_md, convert_all_files, convert_to_markdown, convert_unp_files
 
 pytest = importlib.import_module("pytest")
 

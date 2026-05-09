@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from ..models import (
+from workflows.epfr.models import (
     CompanyFiles,
     EpfrAiDistilledCompany,
     EpfrAiDistilledFile,

@@ -4,7 +4,7 @@
 
 import importlib
 
-from ..markdown_cleanup import clean_markdown_text
+from workflows.epfr.markdown_cleanup import clean_markdown_text
 
 pytest = importlib.import_module("pytest")
 

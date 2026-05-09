@@ -5,9 +5,9 @@
 import json
 from pathlib import Path
 
-from .. import config
-from ..models import EpfrSharePayoutExportInput
-from ..share_payout_exporter import load_share_reference_index, run_share_payout_export
+from workflows.epfr import config
+from workflows.epfr.models import EpfrSharePayoutExportInput
+from workflows.epfr.share_payout_exporter import load_share_reference_index, run_share_payout_export
 
 
 class TestExportConfigDefaults:

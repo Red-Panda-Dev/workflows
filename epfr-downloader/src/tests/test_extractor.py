@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Literal
 
-from ..extractor import (
+from workflows.epfr.extractor import (
     ARCHIVE_EXTENSIONS,
     _detect_ooxml_type,
     extract_all_archives,
