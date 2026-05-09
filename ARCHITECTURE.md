@@ -2,107 +2,102 @@
 
 ## 1. High-Level Overview
 
-This repository is a Python workspace for the EPFR pipeline — a set of Mistral AI Workflows that download and process dividend disclosure records from the Belarusian securities regulator API at `epfr.gov.by`. The system runs as a long-lived worker process that polls the Mistral Workflows runtime for jobs, executes durable pipeline activities, and writes structured output to the local filesystem.
+This repository is a Python workspace containing a data-pipeline project that automates downloading and processing dividend disclosure records from the Belarusian securities regulator (`epfr.gov.by`). The pipeline fetches paginated records from a REST API, downloads and normalizes binary file content (archives, office documents, PDFs), OCRs PDFs via Mistral AI, AI-distills structured dividend data, and exports share-payout records matched against a reference CSV.
 
-The core purpose (Observed from `README.md`, `epfr-downloader/pyproject.toml`) is to automate extraction, normalization, and AI-powered distillation of dividend data from government disclosures. The pipeline ingests raw binary files (PDFs, Office documents, archives), converts them to Markdown, applies Mistral AI for structured data extraction, and produces JSON artifacts ready for database import.
+The system is built on the **Mistral AI Workflows SDK** (`mistralai-workflows`). Each pipeline stage is an independently deployable workflow — a durable, activity-based unit of work managed by the Mistral runtime. Workflows are auto-discovered at worker startup and invoked via a CLI client or externally.
 
-The runtime code lives entirely under `epfr-downloader/`. The repository root provides shared tooling configuration (`ruff`, `ty`) and automation helpers (`Makefile`, CI).
+**Evidence:** `pyproject.toml` (root, `epfr-downloader/`), `epfr-downloader/src/discover.py`, `epfr-downloader/src/workflows/epfr/workflow.py`, `epfr-downloader/Dockerfile`, `README.md`.
 
-**Evidence anchors:** `epfr-downloader/pyproject.toml` (runtime deps including `mistralai-workflows`), `epfr-downloader/src/discover.py` (worker bootstrap), `pyproject.toml` (root, linting/type tooling), `Makefile` (root), `README.md`.
+- **Business purpose** (`Inferred` from `epfr-downloader/pyproject.toml` description and `epfr.gov.by` API usage): automate retrieval and enrichment of dividend disclosure filings from the Belarusian EPFR regulator.
+- **Stack**: Python 3.14.3, `uv` package manager, `mistralai-workflows` runtime, `aiohttp` HTTP client, `pydantic` models, Docker deployment.
+- **Two `uv` environments**: root `.venv` holds linting/type-check tooling only; `epfr-downloader/.venv` holds runtime dependencies (`Observed` in root `pyproject.toml` and `epfr-downloader/pyproject.toml`).
 
 ## 2. System Architecture (Logical)
 
-The project follows five logical layers:
+Five logical components, arranged as a linear pipeline with sequential data-flow dependencies:
 
 ```
-[Mistral Workflows Runtime]   (external SaaS)
-        |  dispatches jobs / receives results
-        v
-[Worker Process]  <- src/discover.py
-   auto-discovers workflow classes, starts workflows.run_worker()
-        |
-        v
-[Workflow Orchestration]  <- workflow.py, pdf_ocr_workflow.py,
-                             ai_distiller_workflow.py, share_payout_exporter_workflow.py
-   defines durable workflow classes; sequences activities
-        |  calls
-        v
-[Activities]  <- @workflows.activity() decorated async functions
-   stateless async functions; contain all I/O and env-var access
-        |
-        v
-[Support Layer]  <- client.py, detector.py, extractor.py, converter.py,
-                    pdf_ocr.py, ai_distiller.py, share_payout_exporter.py,
-                    config.py, models.py, markdown_cleanup.py
-   HTTP client, parsers/converters, OCR/AI integrations, schemas, config
+┌─────────────┐    ┌──────────────┐    ┌───────────┐    ┌──────────────┐    ┌──────────────────┐
+│  API Client  │───>│ File         │───>│ PDF OCR   │───>│ AI Distiller │───>│ Share Payout     │
+│  + Detector  │    │ Processing   │    │ Converter │    │              │    │ Exporter         │
+└─────────────┘    └──────────────┘    └───────────┘    └──────────────┘    └──────────────────┘
+       │                  │                                                          │
+       v                  v                                                          v
+  epfr.gov.by       output/<UNP>/       Mistral OCR        Mistral Large      shares_source_data.csv
+  REST API          unp_file_mapping.json  API              chat API            share_payouts_by_unp.json
+                                          ai_distilled_dividends.json
 ```
 
-### Component responsibilities
+### Components
 
-| Layer | Location | Responsibility |
-|-------|----------|----------------|
-| **Mistral Workflows Runtime** | External | Durable execution, retries, job dispatch |
-| **Worker Process** | `discover.py` | Scans `src/workflows/` for `@workflows.workflow.define(...)` classes, starts `workflows.run_worker()` |
-| **Workflow Orchestration** | `*_workflow.py` files | Top-level pipeline classes with `async def run()` entrypoints; sequences activity calls |
-| **Activities** | `@workflows.activity()` | Retryable units of work; all env-var reads, network I/O, and filesystem writes |
-| **Support Layer** | Pure helpers | API calls, file-type detection, archive extraction, format conversion, OCR, AI distillation, Pydantic models |
+1. **API Client & Discovery** — Fetches paginated records from `epfr.gov.by`, downloads raw binary files, detects file types by magic bytes. Entrypoint: `client.py`, `detector.py`.
+2. **File Processing Pipeline** (`epfr-files-downloader` workflow) — Extracts archives, converts office documents to Markdown, produces `unp_file_mapping.json`. Entrypoint: `workflow.py`.
+3. **PDF OCR Converter** (`epfr-pdf-ocr-converter` workflow) — OCRs PDF entries from the mapping via Mistral OCR, updates mapping to reference `.md` files. Entrypoint: `pdf_ocr_workflow.py`.
+4. **AI Distiller** (`epfr-ai-distiller` workflow) — Extracts structured dividend records from Markdown via Mistral Large, produces `ai_distilled_dividends.json`. Entrypoint: `ai_distiller_workflow.py`.
+5. **Share Payout Exporter** (`epfr-share-payout-exporter` workflow) — Joins distilled dividends with a share reference CSV, produces `share_payouts_by_unp.json`. Entrypoint: `share_payout_exporter_workflow.py`.
+
+### Boundaries
+
+- **Each workflow is independently invocable.** They communicate only through filesystem artifacts (JSON mapping files, Markdown files) — not through shared memory or direct calls (`Observed` in code: no cross-workflow imports).
+- **The Mistral runtime sandbox** restricts `os.environ` access inside workflow classes. All env var reads must happen inside `@workflows.activity()` functions (`Observed` in `epfr-downloader/AGENTS.md` and `discover.py`).
+- **No external state stores.** All pipeline state lives in the filesystem under `output/` and in JSON artifacts. No database, no message queue (`Observed` — no persistence deps in `epfr-downloader/pyproject.toml`).
+- **Tooling is separated from runtime.** Root `pyproject.toml` has only `ruff` + `ty`; all runtime deps live in `epfr-downloader/pyproject.toml` (`Observed`).
 
 ### Dependency direction
 
-- Workflows depend on activities (inline in same file)
-- Activities depend on support-layer modules
-- Support-layer modules depend on `config.py` and `models.py`
-- No circular imports; `config.py`, `models.py`, `detector.py`, `extractor.py`, `markdown_cleanup.py` are leaf modules
+```
+workflow modules → config.py, models.py (leaf modules)
+workflow modules → Mistral SDK, aiohttp, pydantic
+No workflow module imports another workflow module
+```
 
-### Architectural boundaries
-
-- **Workflow sandbox:** `os.environ` access is forbidden inside workflow classes — all env var reads must happen inside activity functions
-- **Discovery contract:** Workflows must be decorated with `@workflows.workflow.define(...)` to be auto-discovered via `__workflows_workflow_def` attribute
-- **Environment separation:** Root `.venv` contains tooling (`ruff`, `ty`); `epfr-downloader/.venv` contains runtime dependencies
+Leaf modules with no inbound business imports: `config.py`, `models.py`, `detector.py`, `extractor.py`, `markdown_cleanup.py` (`Observed` in `epfr-downloader/src/workflows/epfr/AGENTS.md`).
 
 ## 3. Code Map (Physical)
 
 ```text
 workflows/                              # Repository root
-├── pyproject.toml                      # Root project: ruff + ty config (tooling-only deps)
-├── Makefile                            # lint/refactor/type-check for epfr-downloader/
-├── AGENTS.md                           # Repo-level contributor guide and change rules
+├── pyproject.toml                      # Root project: ruff + ty tooling config only
+├── Makefile                            # lint, refactor, type-check (delegates to epfr-downloader)
+├── shares_source_data.csv              # Share reference input for payout exporter
 ├── ARCHITECTURE.md                     # This file
-├── README.md                           # Setup and usage quick reference
-├── shares_source_data.csv              # Share reference data for payout export
-├── .github/                            # CI workflows and repo automations
+├── AGENTS.md                           # Workspace-level contributor guidance
+├── README.md                           # Setup, commands, workflow overview
 │
-└── epfr-downloader/                    # EPFR pipeline: download → OCR → AI distill → export
+├── .github/workflows/tests.yml         # CI: install, lint, test, coverage upload
+├── .github/dependabot.yml              # Weekly pip + GH Actions dependency updates
+│
+└── epfr-downloader/                    # EPFR pipeline project (own uv env)
     ├── pyproject.toml                  # Runtime deps: mistralai-workflows, aiohttp, pydantic, etc.
-    ├── Makefile                        # start-worker, execute, execute-share-payout-exporter, lint, test
-    ├── Dockerfile                      # Container image for worker deployment
-    ├── AGENTS.md                       # Project-local module map and invariants
-    ├── generate_sql.py                 # Standalone: share_payouts_by_unp.json → SQL INSERT statements
-    ├── output/                         # Downloaded files, mapping JSON, distilled JSON (gitignored)
+    ├── Makefile                        # start-worker, execute, lint, test, docker-build/run
+    ├── Dockerfile                      # Multi-stage build; CMD = discover.py
+    ├── generate_sql.py                 # Standalone: share_payouts JSON → SQL INSERTs
+    ├── AGENTS.md                       # Project-local module map and change rules
+    │
     └── src/
-        ├── discover.py                 # Worker entrypoint: auto-discovers + starts Mistral worker
+        ├── discover.py                 # Auto-discovers workflow classes, starts Mistral worker
         └── workflows/
-            ├── __init__.py             # Package marker for auto-discovery
-            ├── start.py                # CLI trigger for workflow execution
-            └── epfr/                   # EPFR pipeline package (4 workflows)
+            ├── __init__.py             # Package marker (discovery entry point)
+            ├── start.py                # CLI to trigger workflow execution via Mistral client
+            └── epfr/                   # All 4 workflow definitions + shared modules
                 ├── AGENTS.md           # Pipeline internals, data contracts, activity boundaries
-                ├── workflow.py                      # epfr-files-downloader (5 activities)
-                ├── pdf_ocr_workflow.py              # epfr-pdf-ocr-converter (1 activity)
-                ├── ai_distiller_workflow.py         # epfr-ai-distiller (1 activity)
-                ├── share_payout_exporter_workflow.py # epfr-share-payout-exporter (1 activity)
-                ├── client.py                        # aiohttp client for epfr.gov.by REST API
-                ├── detector.py                      # Magic-byte file type detection
-                ├── extractor.py                     # Archive extraction + OOXML detection
-                ├── converter.py                     # docx/doc/xls/xlsx → Markdown conversion
-                ├── markdown_cleanup.py              # Token-heavy markdown artifact removal
-                ├── pdf_ocr.py                       # PDF OCR via Mistral OCR plugin
-                ├── ai_distiller.py                  # Mistral Large structured extraction
-                ├── share_payout_exporter.py         # CSV join + payout export
-                ├── config.py                        # Constants and tuning knobs
-                ├── models.py                        # Pydantic data models (all workflows)
+                ├── config.py           # All constants: API URLs, concurrency, retry, model names
+                ├── models.py           # Pydantic models for all 4 workflows
+                ├── client.py           # aiohttp API client (fetch pages, download files)
+                ├── detector.py         # Magic-byte file extension detection
+                ├── extractor.py        # Archive extraction (ZIP, TAR, GZ) + OOXML detection
+                ├── converter.py        # Document-to-Markdown conversion (docx/doc/xls/xlsx)
+                ├── markdown_cleanup.py # Token-heavy markdown artifact removal
+                ├── workflow.py         # epfr-files-downloader workflow (5 activities)
+                ├── pdf_ocr.py          # PDF OCR via Mistral plugin
+                ├── pdf_ocr_workflow.py # epfr-pdf-ocr-converter workflow
+                ├── ai_distiller.py     # AI structured extraction logic
+                ├── ai_distiller_workflow.py  # epfr-ai-distiller workflow
+                ├── share_payout_exporter.py  # CSV join + export logic
+                ├── share_payout_exporter_workflow.py  # epfr-share-payout-exporter workflow
                 ├── prompts/
-                │   └── dividends_parsing.md         # AI prompt template for dividend extraction
-                └── tests/                           # Unit tests (7 modules)
+                │   └── dividends_parsing.md  # Prompt template for AI distillation
+                └── tests/              # Unit tests (7 modules)
 ```
 
 ### Where is X?
@@ -124,7 +119,9 @@ workflows/                              # Repository root
 
 ## 4. Life of a Request / Primary Data Flow
 
-### Worker startup
+This is a **data pipeline** (worker/event-processor shape), not a web service. The primary execution path:
+
+### Worker startup (always-on)
 
 ```
 make start-worker (from epfr-downloader/)
@@ -134,61 +131,55 @@ make start-worker (from epfr-downloader/)
        - workflows.run_worker()   # long-running: polls Mistral runtime for jobs
 ```
 
-### Triggering a workflow run
+### Trigger
 
 ```
-make execute input='{"max_pages": 5}'
-  → uv run python src/workflows/start.py --workflow <name> --input '{...}'
-       → submits execution request to Mistral Workflows runtime
+make execute input='{"max_pages": 2, "date_from": "2026-03-01"}'
+  → start.py → Mistral runtime → EpfrFilesDownloader.run()
 ```
 
-### Four EPFR pipelines
+### Main pipeline: `epfr-files-downloader`
 
-**Workflow 1 — `epfr-files-downloader`** (entry: `workflow.py`)
 ```
-EpfrFilesDownloader.run()
-  → fetch_all_pages()            # paginate epfr.gov.by REST API → list[EpfrRecord]
-  → download_all_epfr_files()    # HTTP GET each file → output/<UNP>/
-  → extract_all_epfr_archives()  # unpack ZIP/TAR/GZ, detect OOXML-in-ZIP
-  → convert_all_epfr_files()     # docx/doc/xls/xlsx → Markdown
-  → save_unp_mapping()           # write unp_file_mapping.json (atomic)
-```
-
-**Workflow 2 — `epfr-pdf-ocr-converter`** (entry: `pdf_ocr_workflow.py`)
-```
-EpfrPdfOcrConverter.run()
-  → ocr_epfr_mapping_pdfs()      # PDF → Markdown via Mistral OCR, update mapping
+start.py → Mistral runtime → EpfrFilesDownloader.run()
+  → fetch_all_pages          (paginate epfr.gov.by API → list[EpfrRecord])
+  → download_all_epfr_files  (download binary files → output/<UNP>/)
+  → extract_all_epfr_archives (extract ZIP/TAR/GZ, detect OOXML-in-ZIP)
+  → convert_all_epfr_files    (docx/doc/xls/xlsx → .md, cleanup source)
+  → save_unp_mapping          (write output/unp_file_mapping.json, atomic)
 ```
 
-**Workflow 3 — `epfr-ai-distiller`** (entry: `ai_distiller_workflow.py`)
+### Downstream pipelines (invoked separately)
+
 ```
-EpfrAiDistillerWorkflow.run()
-  → distill_epfr_dividends()     # Mistral Large structured extraction → ai_distilled_dividends.json
+epfr-pdf-ocr-converter:
+  read unp_file_mapping.json → OCR each PDF via Mistral → update mapping to .md
+
+epfr-ai-distiller:
+  read unp_file_mapping.json → Mistral Large structured extraction → ai_distilled_dividends.json
+
+epfr-share-payout-exporter:
+  read ai_distilled_dividends.json + shares_source_data.csv → share_payouts_by_unp.json
 ```
 
-**Workflow 4 — `epfr-share-payout-exporter`** (entry: `share_payout_exporter_workflow.py`)
+### Standalone post-processing
+
 ```
-EpfrSharePayoutExporterWorkflow.run()
-  → export_share_payouts()       # join distilled JSON with CSV → share_payouts_by_unp.json
+generate_sql.py: share_payouts_by_unp.json → share_dividends_insert.sql
 ```
 
 ### Data artifact flow
 
 ```
-epfr.gov.by API
-      ↓
-output/<UNP>/*.pdf, *.docx, ...   (raw files)
-      ↓
-output/unp_file_mapping.json      (file registry with lineage)
-      ↓
-output/<UNP>/*.md                 (after OCR/conversion)
-      ↓
-output/ai_distilled_dividends.json (structured dividend data)
-      ↓
-output/share_payouts_by_unp.json  (DB-ready payout records)
-      ↓
-generate_sql.py → share_dividends_insert.sql (optional SQL export)
+epfr.gov.by API → output/<UNP>/*.{pdf,docx,...}
+                → output/unp_file_mapping.json
+                → output/<UNP>/*.md
+                → output/ai_distilled_dividends.json
+                → output/share_payouts_by_unp.json
+                → output/share_dividends_insert.sql (via generate_sql.py)
 ```
+
+All JSON outputs use atomic writes (`tempfile.mkstemp()` → `os.replace()`) (`Observed` in `workflow.py`, `pdf_ocr.py`, `ai_distiller.py`, `share_payout_exporter.py`).
 
 ## 5. Architectural Invariants & Constraints
 
@@ -205,28 +196,36 @@ generate_sql.py → share_dividends_insert.sql (optional SQL export)
   - **Enforcement / Signals (Observed):** Pattern used in `workflow.py`, `pdf_ocr.py`, `ai_distiller.py`, `share_payout_exporter.py`.
 
 - **Rule:** Use correct virtual environments — root `.venv` for tooling, `epfr-downloader/.venv` for runtime.
-  - **Rationale:** They have separate dependency sets (`ruff`/`ty` vs `mistralai-workflows`/runtime libs).
+  - **Rationale:** Separate dependency sets (`ruff`/`ty` vs `mistralai-workflows`/runtime libs).
   - **Enforcement / Signals (Observed):** Separate `pyproject.toml` and `uv.lock` files at each level.
 
-- **Rule:** EPFR changes must pass `make lint` and `make test` in `epfr-downloader/`.
-  - **Rationale:** Tests cover client, detector, extractor, converter, models, AI distiller.
-  - **Enforcement / Signals (Observed):** Makefile targets; CI checks.
+- **Rule:** Workflows communicate only through filesystem artifacts (JSON/Markdown files in `output/`). No workflow module imports another workflow module.
+  - **Rationale:** Each workflow is independently deployable and restartable.
+  - **Enforcement / Signals (Observed):** No cross-workflow imports in the codebase; data contracts are JSON files on disk.
 
 - **Rule:** All configuration constants belong in `config.py`, not hardcoded in modules.
   - **Rationale:** Single source of truth for API URLs, retry limits, concurrency, model names.
-  - **Enforcement / Signals (Inferred):** Convention observed; no linter enforces this.
+  - **Enforcement / Signals (Inferred):** Convention observed across all modules; no linter enforces this.
 
 - **Rule:** Data schema changes require updating `models.py` first, then affected workflow and consumer modules.
   - **Rationale:** Pydantic models define all I/O contracts; breaking changes ripple to AI prompts and tests.
   - **Enforcement / Signals (Inferred):** Convention per `epfr-downloader/AGENTS.md`.
 
-- **Rule:** Pagination in EPFR API client starts at page 0, not page 1.
-  - **Rationale:** EPFR API uses 0-based page numbers.
-  - **Enforcement / Signals (Observed):** `FIRST_PAGE_NO = 0` in `config.py`.
+- **Rule:** EPFR API pagination is 0-based. `FIRST_PAGE_NO = 0`.
+  - **Rationale:** Upstream API convention; wrong offset produces duplicate or missing records.
+  - **Enforcement / Signals (Observed):** Constant in `config.py`; documented in `epfr-downloader/AGENTS.md`.
 
-- **Rule:** Files are organized by UNP (tax ID) in `output/<UNP>/` folders.
-  - **Rationale:** UNP is the stable company identifier from the API.
-  - **Enforcement / Signals (Observed):** `_get_unp()` in `client.py`; folder structure in all workflows.
+- **Rule:** The EPFR API returns raw binary content with no filename. File type must be detected via magic bytes (`detector.py`), not from any header or URL.
+  - **Rationale:** API design constraint — no `Content-Disposition` or filename hints.
+  - **Enforcement / Signals (Observed):** `detector.py` inspects first bytes; files saved as `<record_id><detected_ext>`.
+
+- **Rule:** Files are organized by UNP (tax ID) in `output/<UNP>/`. UNP comes from `rec.holder.unp` with fallback to `rec.organization.unp`.
+  - **Rationale:** Business-key-based folder layout for downstream consumption.
+  - **Enforcement / Signals (Observed):** `_get_unp()` in `client.py`; folder creation in download logic.
+
+- **Rule:** Linting must pass (`make lint`) before commit. Ruff config: line-length 120, rules `F E W I D B UP C4 SIM PIE T20`, ignores `E501 E712`.
+  - **Rationale:** Code quality gate enforced in CI.
+  - **Enforcement / Signals (Observed):** `pyproject.toml` `[tool.ruff]` section; `.github/workflows/tests.yml` runs `make lint`.
 
 - **Rule:** PDF OCR, AI distillation, and share export are separate workflows from the main download pipeline.
   - **Rationale:** Allows independent execution, different retry policies, and phased processing.
@@ -247,6 +246,6 @@ generate_sql.py → share_dividends_insert.sql (optional SQL export)
 
 ### What belongs where
 
-- **Global architecture docs:** Cross-project boundaries, layer definitions, invariants that span multiple modules
-- **Local AGENTS.md / README.md:** Module-specific APIs, internal data contracts, safe change rules, test coverage notes
-- **Code comments / docstrings:** Function-level behavior, parameter semantics, edge cases
+- **Global architecture docs:** Cross-project boundaries, layer definitions, invariants that span multiple modules.
+- **Local AGENTS.md:** Module-specific APIs, internal data contracts, safe change rules, test coverage notes.
+- **Code comments / docstrings:** Function-level behavior, parameter semantics, edge cases (see `.skills/python_docs_and_comments.md` for Google-style docstring policy).
