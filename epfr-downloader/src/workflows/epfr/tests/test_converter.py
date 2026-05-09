@@ -2,16 +2,21 @@
 
 # ruff: noqa: D102
 
+import asyncio
+import importlib
 import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from .. import converter
-from ..converter import _table_to_md, convert_to_markdown
+from ..converter import _table_to_md, convert_all_files, convert_to_markdown, convert_unp_files
 
-FIXTURES = Path(__file__).parent / "fixtures"
+pytest = importlib.import_module("pytest")
+
+
+@pytest.fixture()
+def anyio_backend():
+    return "asyncio"
 
 
 class TestConvertToMarkdown:
@@ -227,19 +232,8 @@ class TestRealDocFiles:
     fallback path added to ``_extract_doc``.
     """
 
-    @pytest.fixture()
-    def dividends_doc(self) -> Path:
-        """OLE2 Excel dividend-disclosure file (record 140243, UNP 200019375)."""
-        return FIXTURES / "ole2_excel_as_doc_dividends.doc"
-
-    @pytest.fixture()
-    def sectors_doc(self) -> Path:
-        """OLE2 Excel sector-rate table file (record 140651, UNP 700332293)."""
-        return FIXTURES / "ole2_excel_as_doc_sectors.doc"
-
-    def test_dividends_doc_converts_successfully(self, dividends_doc: Path, tmp_path: Path):
-        dest = tmp_path / dividends_doc.name
-        dest.write_bytes(dividends_doc.read_bytes())
+    def test_dividends_doc_converts_successfully(self, copy_epfr_fixture, tmp_path: Path):
+        dest = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", tmp_path)
 
         success, content, error, md_path = convert_to_markdown(dest)
 
@@ -249,9 +243,8 @@ class TestRealDocFiles:
         assert md_path.suffix == ".md"
         assert md_path.exists()
 
-    def test_dividends_doc_contains_expected_text(self, dividends_doc: Path, tmp_path: Path):
-        dest = tmp_path / dividends_doc.name
-        dest.write_bytes(dividends_doc.read_bytes())
+    def test_dividends_doc_contains_expected_text(self, copy_epfr_fixture, tmp_path: Path):
+        dest = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", tmp_path)
 
         _, content, _, _ = convert_to_markdown(dest)
 
@@ -260,9 +253,8 @@ class TestRealDocFiles:
         assert "дивидендов" in content
         assert "2025" in content
 
-    def test_dividends_doc_produces_markdown_table(self, dividends_doc: Path, tmp_path: Path):
-        dest = tmp_path / dividends_doc.name
-        dest.write_bytes(dividends_doc.read_bytes())
+    def test_dividends_doc_produces_markdown_table(self, copy_epfr_fixture, tmp_path: Path):
+        dest = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", tmp_path)
 
         _, content, _, _ = convert_to_markdown(dest)
 
@@ -270,9 +262,8 @@ class TestRealDocFiles:
         # xlrd fallback renders rows as pipe-delimited Markdown
         assert "|" in content
 
-    def test_sectors_doc_converts_successfully(self, sectors_doc: Path, tmp_path: Path):
-        dest = tmp_path / sectors_doc.name
-        dest.write_bytes(sectors_doc.read_bytes())
+    def test_sectors_doc_converts_successfully(self, copy_epfr_fixture, tmp_path: Path):
+        dest = copy_epfr_fixture("ole2_excel_as_doc_sectors.doc", tmp_path)
 
         success, content, error, md_path = convert_to_markdown(dest)
 
@@ -281,9 +272,8 @@ class TestRealDocFiles:
         assert md_path is not None
         assert md_path.exists()
 
-    def test_sectors_doc_contains_expected_text(self, sectors_doc: Path, tmp_path: Path):
-        dest = tmp_path / sectors_doc.name
-        dest.write_bytes(sectors_doc.read_bytes())
+    def test_sectors_doc_contains_expected_text(self, copy_epfr_fixture, tmp_path: Path):
+        dest = copy_epfr_fixture("ole2_excel_as_doc_sectors.doc", tmp_path)
 
         _, content, _, _ = convert_to_markdown(dest)
 
@@ -291,9 +281,8 @@ class TestRealDocFiles:
         assert "Сельское" in content
         assert "промышленность" in content
 
-    def test_sectors_doc_rows_are_pipe_delimited(self, sectors_doc: Path, tmp_path: Path):
-        dest = tmp_path / sectors_doc.name
-        dest.write_bytes(sectors_doc.read_bytes())
+    def test_sectors_doc_rows_are_pipe_delimited(self, copy_epfr_fixture, tmp_path: Path):
+        dest = copy_epfr_fixture("ole2_excel_as_doc_sectors.doc", tmp_path)
 
         _, content, _, _ = convert_to_markdown(dest)
 
@@ -302,10 +291,9 @@ class TestRealDocFiles:
         # Every data row must be a pipe-delimited Markdown row
         assert all("|" in row for row in rows)
 
-    def test_real_doc_not_extracted_by_python_docx(self, dividends_doc: Path, tmp_path: Path, monkeypatch):
+    def test_real_doc_not_extracted_by_python_docx(self, copy_epfr_fixture, tmp_path: Path, monkeypatch):
         """python-docx and docx2txt should fail; xlrd must carry the conversion."""
-        dest = tmp_path / dividends_doc.name
-        dest.write_bytes(dividends_doc.read_bytes())
+        dest = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", tmp_path)
 
         docx_calls = []
 
@@ -323,3 +311,119 @@ class TestRealDocFiles:
         assert len(docx_calls) == 1, "python-docx should have been tried once"
         assert success is True
         assert "ИнТриз" in (content or "")
+
+
+@pytest.mark.anyio
+async def test_convert_unp_files_tracks_real_fixture_pairs_without_cleanup(copy_epfr_fixture, tmp_path: Path):
+    unp_dir = tmp_path / "200019375"
+    unp_dir.mkdir()
+
+    dividends_doc = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", unp_dir)
+    sectors_doc = copy_epfr_fixture("ole2_excel_as_doc_sectors.doc", unp_dir)
+    (unp_dir / "skip.txt").write_text("leave me alone", encoding="utf-8")
+
+    unp, success, failure, failed_files, converted_pairs = await convert_unp_files(
+        "200019375",
+        unp_dir,
+        asyncio.Semaphore(4),
+    )
+
+    assert unp == "200019375"
+    assert success == 2
+    assert failure == 0
+    assert failed_files == []
+    assert {(src.name, md.name) for src, md in converted_pairs} == {
+        (dividends_doc.name, "ole2_excel_as_doc_dividends.md"),
+        (sectors_doc.name, "ole2_excel_as_doc_sectors.md"),
+    }
+    assert dividends_doc.exists()
+    assert sectors_doc.exists()
+    assert (unp_dir / "skip.txt").exists()
+    assert "ИнТриз" in (unp_dir / "ole2_excel_as_doc_dividends.md").read_text(encoding="utf-8")
+    assert "Сельское" in (unp_dir / "ole2_excel_as_doc_sectors.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_convert_all_files_honors_overwrite_false_and_cleans_successes(copy_epfr_fixture, tmp_path: Path):
+    success_unp_dir = tmp_path / "200019375"
+    success_unp_dir.mkdir()
+    success_doc = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", success_unp_dir)
+
+    blocked_unp_dir = tmp_path / "700332293"
+    blocked_unp_dir.mkdir()
+    blocked_doc = copy_epfr_fixture("ole2_excel_as_doc_sectors.doc", blocked_unp_dir)
+    blocked_md = blocked_doc.with_suffix(".md")
+    blocked_md.write_text("existing markdown", encoding="utf-8")
+
+    stats = await convert_all_files(
+        ["200019375", "700332293", "000000000"],
+        tmp_path,
+        overwrite=False,
+        cleanup_source=True,
+    )
+
+    assert stats["total_unps"] == 3
+    assert stats["total_files_attempted"] == 2
+    assert stats["total_successful"] == 1
+    assert stats["total_failed"] == 1
+    assert stats["failed_files"] == [str(blocked_doc)]
+    assert stats["cleaned_up_files"] == [str(success_doc)]
+    assert stats["by_unp"]["200019375"] == {
+        "success": 1,
+        "failed": 0,
+        "failed_files": [],
+        "converted_pairs": [(str(success_doc), str(success_doc.with_suffix(".md")))],
+    }
+    assert stats["by_unp"]["700332293"] == {
+        "success": 0,
+        "failed": 1,
+        "failed_files": [str(blocked_doc)],
+        "converted_pairs": [],
+    }
+    assert stats["by_unp"]["000000000"] == {
+        "success": 0,
+        "failed": 0,
+        "failed_files": [],
+        "converted_pairs": [],
+    }
+
+    assert not success_doc.exists()
+    assert success_doc.with_suffix(".md").exists()
+    assert blocked_doc.exists()
+    assert blocked_md.read_text(encoding="utf-8") == "existing markdown"
+
+
+@pytest.mark.anyio
+async def test_convert_all_files_preserves_failed_real_fixture_sources(copy_epfr_fixture, tmp_path: Path, monkeypatch):
+    unp_dir = tmp_path / "123456789"
+    unp_dir.mkdir()
+    failing_doc = copy_epfr_fixture("ole2_excel_as_doc_dividends.doc", unp_dir)
+    success_doc = copy_epfr_fixture("ole2_excel_as_doc_sectors.doc", unp_dir)
+
+    real_extract_doc = converter._extract_doc
+
+    def controlled_extract_doc(path: Path) -> str:
+        if path.name == failing_doc.name:
+            raise RuntimeError("boom")
+        return real_extract_doc(path)
+
+    monkeypatch.setattr(converter, "_extract_doc", controlled_extract_doc)
+
+    stats = await convert_all_files(["123456789"], tmp_path, cleanup_source=True)
+
+    assert stats["total_files_attempted"] == 2
+    assert stats["total_successful"] == 1
+    assert stats["total_failed"] == 1
+    assert stats["failed_files"] == [str(failing_doc)]
+    assert stats["cleaned_up_files"] == [str(success_doc)]
+    assert stats["by_unp"]["123456789"] == {
+        "success": 1,
+        "failed": 1,
+        "failed_files": [str(failing_doc)],
+        "converted_pairs": [(str(success_doc), str(success_doc.with_suffix(".md")))],
+    }
+
+    assert failing_doc.exists()
+    assert not failing_doc.with_suffix(".md").exists()
+    assert not success_doc.exists()
+    assert success_doc.with_suffix(".md").exists()

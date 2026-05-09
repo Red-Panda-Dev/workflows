@@ -2,15 +2,37 @@
 
 # ruff: noqa: D102
 
+import asyncio
+import importlib
+import io
+import tarfile
 import zipfile
 from pathlib import Path
+from typing import Literal
 
 from ..extractor import (
     ARCHIVE_EXTENSIONS,
     _detect_ooxml_type,
+    extract_all_archives,
     extract_archive,
+    extract_unp_archives,
     is_archive,
 )
+
+pytest = importlib.import_module("pytest")
+
+
+@pytest.fixture()
+def anyio_backend():
+    return "asyncio"
+
+
+def _write_tar_archive(archive_path: Path, files: dict[str, bytes], mode: Literal["w", "w:gz"] = "w") -> None:
+    with tarfile.open(archive_path, mode) as tf:
+        for name, content in files.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(content)
+            tf.addfile(info, io.BytesIO(content))
 
 
 class TestIsArchive:
@@ -188,3 +210,100 @@ class TestArchiveExtensions:
 
     def test_contains_tar_gz(self):
         assert ".tar.gz" in ARCHIVE_EXTENSIONS
+
+
+@pytest.mark.anyio
+async def test_extract_unp_archives_tracks_stats_lineage_and_skips_non_archives(tmp_path: Path):
+    unp_dir = tmp_path / "123456789"
+    unp_dir.mkdir()
+
+    with zipfile.ZipFile(unp_dir / "bundle.zip", "w") as zf:
+        zf.writestr("zip-folder/notice.txt", "zip payload")
+
+    _write_tar_archive(unp_dir / "bundle.tar", {"tar-report.txt": b"tar payload"})
+    _write_tar_archive(unp_dir / "bundle.gz", {"gz-report.txt": b"gz payload"}, mode="w:gz")
+    _write_tar_archive(unp_dir / "bundle.tgz", {"tgz-report.txt": b"tgz payload"}, mode="w:gz")
+
+    skipped_file = unp_dir / "skip.pdf"
+    skipped_file.write_bytes(b"%PDF-1.4")
+
+    bad_archive = unp_dir / "broken.zip"
+    bad_archive.write_text("not really a zip", encoding="utf-8")
+
+    result = await extract_unp_archives("123456789", unp_dir, asyncio.Semaphore(4))
+
+    assert result[0] == "123456789"
+    assert result[1] == 4
+    assert result[2] == 1
+    assert result[3] == [str(bad_archive)]
+    assert result[4] == 4
+    assert set(result[5]) == {"notice.txt", "tar-report.txt", "gz-report.txt", "tgz-report.txt"}
+    assert result[6] == {
+        "bundle.zip": ["notice.txt"],
+        "bundle.tar": ["tar-report.txt"],
+        "bundle.gz": ["gz-report.txt"],
+        "bundle.tgz": ["tgz-report.txt"],
+    }
+
+    assert (unp_dir / "notice.txt").read_text(encoding="utf-8") == "zip payload"
+    assert (unp_dir / "tar-report.txt").read_text(encoding="utf-8") == "tar payload"
+    assert (unp_dir / "gz-report.txt").read_text(encoding="utf-8") == "gz payload"
+    assert (unp_dir / "tgz-report.txt").read_text(encoding="utf-8") == "tgz payload"
+
+    assert not (unp_dir / "bundle.zip").exists()
+    assert not (unp_dir / "bundle.tar").exists()
+    assert not (unp_dir / "bundle.gz").exists()
+    assert not (unp_dir / "bundle.tgz").exists()
+    assert bad_archive.exists()
+    assert skipped_file.exists()
+
+
+@pytest.mark.anyio
+async def test_extract_all_archives_aggregates_lineage_ooxml_and_empty_unps(tmp_path: Path):
+    ooxml_unp = tmp_path / "111"
+    ooxml_unp.mkdir()
+    with zipfile.ZipFile(ooxml_unp / "statement.zip", "w") as zf:
+        zf.writestr("[Content_Types].xml", "content types")
+        zf.writestr("word/document.xml", "document content")
+
+    empty_unp = tmp_path / "222"
+    empty_unp.mkdir()
+    (empty_unp / "notes.txt").write_text("not an archive", encoding="utf-8")
+
+    stats = await extract_all_archives(["111", "222", "333"], tmp_path)
+
+    assert stats == {
+        "total_unps": 3,
+        "total_archives": 1,
+        "successful": 1,
+        "failed": 0,
+        "failed_archives": [],
+        "files_extracted": 1,
+        "by_unp": {
+            "111": {
+                "archives_extracted": 1,
+                "archives_failed": 0,
+                "failed_archives": [],
+                "extracted_files": ["statement.docx"],
+                "archive_to_files": {"statement.zip": ["statement.docx"]},
+            },
+            "222": {
+                "archives_extracted": 0,
+                "archives_failed": 0,
+                "failed_archives": [],
+                "extracted_files": [],
+                "archive_to_files": {},
+            },
+            "333": {
+                "archives_extracted": 0,
+                "archives_failed": 0,
+                "failed_archives": [],
+                "extracted_files": [],
+                "archive_to_files": {},
+            },
+        },
+    }
+
+    assert not (ooxml_unp / "statement.zip").exists()
+    assert (ooxml_unp / "statement.docx").exists()
+    assert (empty_unp / "notes.txt").exists()

@@ -1,20 +1,22 @@
-"""Tests for EPFR Pydantic models using sample API response."""
+"""Tests for EPFR Pydantic models and JSON fixture contracts."""
 
 # ruff: noqa: D102
 
-import json
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from ..models import (
+    CompanyFiles,
+    EpfrAiDistilledCompany,
+    EpfrAiDistilledFile,
     EpfrApiResponse,
     EpfrAiDistillerInput,
     EpfrDividendEntry,
     EpfrFileRecord,
+    EpfrRecord,
     EpfrSharePayoutExportInput,
     EpfrSharePayoutExportOutput,
     EpfrSharePayoutExportRow,
@@ -95,9 +97,6 @@ SAMPLE_API_RESPONSE = {
 }
 
 
-_FIXTURES_DIR = Path(__file__).parent / "fixtures"
-
-
 class TestEpfrApiResponse:
     """Tests for parsing the full API response."""
 
@@ -144,10 +143,9 @@ class TestEpfrApiResponse:
         assert response.last is True
         assert response.total_pages == 0
 
-    def test_null_sub_category_type_is_ignored(self):
+    def test_null_sub_category_type_is_ignored(self, load_epfr_fixture_json):
         """Regression: API returns subCategoryType=null — must not raise ValidationError."""
-        fixture_path = _FIXTURES_DIR / "epfr_api_response_null_subcategory.json"
-        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        data = load_epfr_fixture_json("epfr_api_response_null_subcategory.json")
 
         response = EpfrApiResponse.model_validate(data)
 
@@ -160,6 +158,117 @@ class TestEpfrApiResponse:
         assert last_rec.id == 136558
         assert last_rec.holder is not None
         assert last_rec.holder.unp == "200166738"
+        assert "subCategoryType" not in last_rec.model_dump()
+
+
+class TestEpfrFixtureContracts:
+    """Tests for committed JSON fixtures using production model contracts."""
+
+    def test_unp_file_mapping_fixture_parses_through_company_files(self, load_epfr_fixture_json):
+        data = load_epfr_fixture_json("unp_file_mapping.json")
+
+        companies = {unp: CompanyFiles.model_validate(company) for unp, company in data.items()}
+
+        assert set(companies) == set(data)
+        assert len(companies) == 20
+        assert companies["600073968"].title == 'Открытое акционерное общество "ЭНЭФ"'
+        assert companies["600073968"].files[0].converted_from == "141278.pdf"
+        assert companies["200100116"].files[0].extracted_from == "141054.zip"
+        assert companies["200100116"].files[0].converted_from == "141054.xlsx"
+        assert companies["100104781"].files[0].original_name == (
+            'Информация о выплате дивидендов за 2025 год ОАО "Дрожжевой комбинат"'
+        )
+        assert companies["700161222"].title == 'Открытое акционерное общество "Агросервис", г.Чаусы'
+
+    def test_ai_distilled_dividends_fixture_parses_through_models(self, load_epfr_fixture_json):
+        data = load_epfr_fixture_json("ai_distilled_dividends.json")
+
+        companies = {unp: EpfrAiDistilledCompany.model_validate(company) for unp, company in data.items()}
+
+        assert set(companies) == set(data)
+        assert len(companies) == 20
+        first_company = companies["600073968"]
+        first_file = first_company.files[0]
+        assert first_company.company_name == 'Открытое акционерное общество "ЭНЭФ"'
+        assert first_file.file_path == "output/600073968/141278.md"
+        assert first_file.has_dividends is True
+        assert first_file.autofilled_fields == ["payment_date", "record_date"]
+        assert first_file.dividends[0].amount_per_share == Decimal("46.73")
+        assert first_file.dividends[0].decision_date == date(2026, 5, 4)
+        assert "Дрожжевой комбинат" in companies["100104781"].company_name
+        assert companies["100104781"].files[0].original_name.startswith("Информация о выплате дивидендов")
+        assert companies["700161222"].files[0].original_name == (
+            "Агросервис, г. Чаусы ОАО 700161222 Информация о выплате дивидендов за 2025г."
+        )
+
+    def test_share_payouts_by_unp_fixture_parses_through_row_model(self, load_epfr_fixture_json):
+        data = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        rows_by_unp = {
+            unp: sorted((EpfrSharePayoutExportRow.model_validate(row) for row in rows), key=lambda row: row.share_uuid)
+            for unp, rows in data.items()
+        }
+
+        assert set(rows_by_unp) == set(data)
+        assert len(rows_by_unp) == 11
+        row = rows_by_unp["600073968"][0]
+        assert row.share_uuid == "76e720e1"
+        assert row.amount_per_share == Decimal("46.73")
+        assert row.payment_date == date(2026, 7, 10)
+        assert row.model_dump(mode="json") == {
+            "share_uuid": "76e720e1",
+            "period_year": 2026,
+            "period_type": "quarterly",
+            "period_number": 1,
+            "amount_per_share": "46.73",
+            "decision_date": "2026-05-04",
+            "record_date": "2026-04-04",
+            "payment_date": "2026-07-10",
+        }
+        assert rows_by_unp["100152790"][0].amount_per_share == Decimal("20.48")
+        assert len(rows_by_unp["700160772"]) == 2
+        assert rows_by_unp["700160772"][0].share_uuid == rows_by_unp["700160772"][1].share_uuid
+
+    def test_fixture_unicode_survives_loading(self, load_epfr_fixture_json):
+        mapping = load_epfr_fixture_json("unp_file_mapping.json")
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        api_response = load_epfr_fixture_json("epfr_api_response_null_subcategory.json")
+
+        assert "ЭНЭФ" in mapping["600073968"]["title"]
+        assert "Дрожжевой комбинат" in mapping["100104781"]["files"][0]["original_name"]
+        assert "Первомайск-агро" in distilled["591867699"]["company_name"]
+        assert "БЕЛЭНЕРГОРЕМНАЛАДКА" in api_response["content"][2]["holder"]["title"]
+
+
+class TestEpfrOptionalFieldContracts:
+    """Tests for minimal payloads and missing optional fields."""
+
+    def test_minimal_epfr_record_defaults_optional_fields(self):
+        record = EpfrRecord.model_validate({"id": 1, "name": "Минимальный документ"})
+
+        assert record.real_upload_date == ""
+        assert record.holder is None
+
+    def test_minimal_company_files_defaults_empty_file_list(self):
+        company = CompanyFiles.model_validate({"title": "Компания", "holder_id": 42})
+
+        assert company.files == []
+
+    def test_minimal_ai_distilled_file_defaults_optional_fields(self):
+        file_data = EpfrAiDistilledFile.model_validate(
+            {
+                "id": 1,
+                "file_path": "output/1/1.md",
+                "filename": "1.md",
+                "original_name": "Документ",
+            }
+        )
+
+        assert file_data.extracted_from is None
+        assert file_data.converted_from is None
+        assert file_data.error is None
+        assert file_data.autofilled_fields == []
+        assert file_data.dividends == []
 
 
 class TestEpfrWorkflowInput:

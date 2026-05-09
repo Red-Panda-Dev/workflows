@@ -432,3 +432,260 @@ class TestWorkflowDiscovery:
 
         names = sorted(get_workflow_definition(wf).name for wf in discover_workflows())
         assert "epfr-share-payout-exporter" in names
+
+
+_EXPECTED_CSV_ROWS = [
+    "ЭНЭФ,600073968,76e720e1,T1715,common",
+    "Победа,200100116,c16b0227,T1716,common",
+    "Первомайск-агро,591867699,1ced04f8,T1717,common",
+    "Круглянская Искра,700107602,f1e583c8,T1718,common",
+    "Мстиславчанка,700160772,f6ba014b,T1719,common",
+    "Хальч,400053193,c4bdbe76,T1720,common",
+    "Витебские ковры,300082076,c72add2d,T1721,common",
+    "ЦБТ,101349508,5a34e878,T1722,common",
+    "Маяк Высокое,300009076,f06e7226,T1723,common",
+    "Слуцкая фабрика,600154407,793a4216,T1724,common",
+    "ХЦ-ПОЛИНОВОТЕХ,100152790,1e2f04dd,T1725,common",
+]
+
+
+def _setup_real_fixture_export(
+    tmp_path: Path,
+    distilled_data: dict,
+    csv_rows: list[str] | None = None,
+) -> EpfrSharePayoutExportInput:
+    """Write distilled JSON + CSV to tmp_path and return export input."""
+    distilled_path = tmp_path / "ai_distilled_dividends.json"
+    distilled_path.write_text(json.dumps(distilled_data, ensure_ascii=False), encoding="utf-8")
+    rows = csv_rows if csv_rows is not None else _EXPECTED_CSV_ROWS
+    csv_path = _write_csv(tmp_path, rows)
+    return EpfrSharePayoutExportInput(
+        output_dir=str(tmp_path),
+        input_filename="ai_distilled_dividends.json",
+        output_filename="share_payouts_by_unp.json",
+        shares_csv_path=str(csv_path),
+    )
+
+
+class TestRealFixtureExport:
+    """Export tests using committed ai_distilled_dividends.json and share_payouts_by_unp.json fixtures."""
+
+    def test_expected_unp_keys_present(self, tmp_path, load_epfr_fixture_json):
+        """All UNP keys from the expected output fixture appear in the generated export."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        expected = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        for unp_key in expected:
+            assert unp_key in export, f"Expected UNP key {unp_key!r} missing from export"
+
+    def test_payout_count_per_unp(self, tmp_path, load_epfr_fixture_json):
+        """Number of payout rows per UNP matches the expected fixture."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        expected = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        for unp_key, expected_rows in expected.items():
+            assert len(export[unp_key]) == len(expected_rows), (
+                f"UNP {unp_key}: expected {len(expected_rows)} payouts, got {len(export[unp_key])}"
+            )
+
+    def test_200100116_exact_fields(self, tmp_path, load_epfr_fixture_json):
+        """UNP 200100116 (Победа): exact field match for the single payout entry."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        expected = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        actual = export["200100116"][0]
+        expected_row = expected["200100116"][0]
+        assert actual["share_uuid"] == expected_row["share_uuid"]
+        assert actual["period_year"] == expected_row["period_year"]
+        assert actual["period_type"] == expected_row["period_type"]
+        assert actual["period_number"] == expected_row["period_number"]
+        assert actual["amount_per_share"] == expected_row["amount_per_share"]
+        assert actual["decision_date"] == expected_row["decision_date"]
+        assert actual["record_date"] == expected_row["record_date"]
+        assert actual["payment_date"] == expected_row["payment_date"]
+
+    def test_101349508_exact_fields(self, tmp_path, load_epfr_fixture_json):
+        """UNP 101349508 (ЦБТ): exact field match for the single payout entry."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        expected = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        actual = export["101349508"][0]
+        expected_row = expected["101349508"][0]
+        assert actual["share_uuid"] == expected_row["share_uuid"]
+        assert actual["amount_per_share"] == expected_row["amount_per_share"]
+        assert actual["decision_date"] == expected_row["decision_date"]
+        assert actual["payment_date"] == expected_row["payment_date"]
+
+    def test_100152790_exact_fields(self, tmp_path, load_epfr_fixture_json):
+        """UNP 100152790 (ХЦ-ПОЛИНОВОТЕХ): exact field match for the single payout entry."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        expected = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        actual = export["100152790"][0]
+        expected_row = expected["100152790"][0]
+        assert actual["share_uuid"] == expected_row["share_uuid"]
+        assert actual["amount_per_share"] == expected_row["amount_per_share"]
+        assert actual["period_year"] == expected_row["period_year"]
+        assert actual["payment_date"] == expected_row["payment_date"]
+
+    def test_700160772_duplicate_file_produces_two_rows(self, tmp_path, load_epfr_fixture_json):
+        """UNP 700160772 has two identical file entries → export has two payout rows."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert len(export["700160772"]) == 2
+        assert export["700160772"][0]["share_uuid"] == "f6ba014b"
+        assert export["700160772"][1]["share_uuid"] == "f6ba014b"
+
+    def test_share_uuid_from_csv_not_distilled(self, tmp_path, load_epfr_fixture_json):
+        """share_uuid comes from the CSV index, not from the distilled data."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+
+        csv_rows = [r for r in _EXPECTED_CSV_ROWS if not r.startswith("Победа,200100116")]
+        csv_rows.append("Победа,200100116,custom-uuid-xyz,T1716,common")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled, csv_rows=csv_rows)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert export["200100116"][0]["share_uuid"] == "custom-uuid-xyz"
+
+    def test_total_companies_exported(self, tmp_path, load_epfr_fixture_json):
+        """Stats report the correct number of exported companies."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        expected = load_epfr_fixture_json("share_payouts_by_unp.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        stats = run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert stats["total_companies_exported"] == len(export)
+        assert stats["total_companies_exported"] >= len(expected)
+
+    def test_export_row_shape_matches_schema(self, tmp_path, load_epfr_fixture_json):
+        """Every exported row has exactly the fields defined by EpfrSharePayoutExportRow."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        expected_keys = {
+            "share_uuid",
+            "period_year",
+            "period_type",
+            "period_number",
+            "amount_per_share",
+            "decision_date",
+            "record_date",
+            "payment_date",
+        }
+        for unp_key, rows in export.items():
+            for row in rows:
+                assert set(row.keys()) == expected_keys, (
+                    f"UNP {unp_key}: unexpected keys {set(row.keys()) - expected_keys}"
+                )
+
+
+class TestRealFixtureEdgeCases:
+    """Edge-case tests derived from the real fixture structure."""
+
+    def test_empty_dividend_list_produces_no_output(self, tmp_path, load_epfr_fixture_json):
+        """A UNP whose files have empty dividend lists does not appear in export."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        distilled["200100116"]["files"][0]["dividends"] = []
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        stats = run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert "200100116" not in export
+        assert stats["matched_payouts"] == 0 or "200100116" not in [
+            r.get("unp", "") for r in stats.get("unmatched_samples", {}).get("missing_csv_unp", [])
+        ]
+
+    def test_unknown_unp_skipped(self, tmp_path, load_epfr_fixture_json):
+        """A UNP not present in the CSV index is skipped (missing_csv_unp)."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        distilled["999999999"] = {
+            "company_name": "Unknown Co",
+            "unp": "999999999",
+            "holder_id": 0,
+            "files": [
+                {
+                    "id": 99999,
+                    "filename": "99999.md",
+                    "dividends": [_make_dividend()],
+                    "autofilled_fields": [],
+                    "error": None,
+                }
+            ],
+        }
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        stats = run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert "999999999" not in export
+        assert stats["missing_csv_unp"] >= 1
+
+    def test_no_mistral_api_key_required(self, tmp_path, load_epfr_fixture_json):
+        """Export runs successfully without MISTRAL_API_KEY in the environment."""
+        import os
+
+        key_backup = os.environ.pop("MISTRAL_API_KEY", None)
+        try:
+            distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+            inp = _setup_real_fixture_export(tmp_path, distilled)
+            stats = run_share_payout_export(inp)
+            assert stats["matched_payouts"] > 0
+        finally:
+            if key_backup is not None:
+                os.environ["MISTRAL_API_KEY"] = key_backup
+
+    def test_file_with_error_skipped(self, tmp_path, load_epfr_fixture_json):
+        """A file with a non-null error field has its dividends skipped."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        distilled["200100116"]["files"][0]["error"] = "ValidationError: something"
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        stats = run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert "200100116" not in export
+        assert stats["skipped_file_errors"] >= 1
+
+    def test_autofilled_share_type_skipped(self, tmp_path, load_epfr_fixture_json):
+        """Dividends from files where share_type was autofilled are skipped."""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        distilled["200100116"]["files"][0]["autofilled_fields"] = ["share_type"]
+
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+        stats = run_share_payout_export(inp)
+
+        export = json.loads((tmp_path / "share_payouts_by_unp.json").read_text(encoding="utf-8"))
+        assert "200100116" not in export
+        assert stats["autofilled_share_type"] >= 1
