@@ -16,7 +16,13 @@ import aiohttp
 import mistralai.workflows as workflows
 
 from .client import _get_unp, download_all_files, fetch_page
-from .config import load_epfr_config, resolve_workflow_input
+from .config import (
+    DEFAULT_MAX_PAGES,
+    DEFAULT_OUTPUT_DIR,
+    EPFR_DEFAULTS,
+    load_epfr_config,
+    resolve_workflow_input,
+)
 from .converter import convert_all_files
 from .extractor import extract_all_archives
 from .models import (
@@ -431,13 +437,14 @@ class EpfrFilesDownloader:
             EpfrWorkflowOutput with totals, mapping path, and stats.
 
         """
-        resolved = resolve_workflow_input(**input.model_dump(exclude_none=True))
-        output_dir = resolved["output_dir"]
+        output_dir = str(input.output_dir if input.output_dir else DEFAULT_OUTPUT_DIR)
+        max_pages = input.max_pages if input.max_pages is not None else DEFAULT_MAX_PAGES
+        date_from = input.date_from if input.date_from else EPFR_DEFAULTS.default_date_from
 
         logger.info(
             "Starting EPFR download: max_pages=%s, date_from=%s, output_dir=%s",
-            input.max_pages,
-            input.date_from,
+            max_pages,
+            date_from,
             output_dir,
         )
 
@@ -471,8 +478,8 @@ class EpfrFilesDownloader:
             total_companies=len(unps),
             mapping_path=mapping_path,
             stats={
-                "pages_requested": resolved["max_pages"],
-                "date_from": resolved["date_from"],
+                "pages_requested": max_pages,
+                "date_from": date_from,
                 "download_successful": download_stats["successful"],
                 "download_failed": download_stats["failed"],
                 "download_failed_ids": download_stats["failed_ids"],
