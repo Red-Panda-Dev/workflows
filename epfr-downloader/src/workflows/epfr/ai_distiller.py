@@ -11,10 +11,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
-from mistralai.client import Mistral as MistralClient
+from mistralai.workflows.plugins.mistralai import ChatCompletionRequest, ResponseFormat, mistralai_chat_parse
+from mistralai.extra import response_format_from_pydantic_model
 from pydantic import BaseModel, Field, ValidationError
 
-from .config import load_epfr_config, require_mistral_api_key
+from .config import load_epfr_config
 from .models import (
     EpfrAiDistilledCompany,
     EpfrAiDistilledFile,
@@ -55,46 +56,30 @@ class AIDistiller:
             f"Initializing AIDistiller: model={model_name}, temperature={temperature}, reference_date={reference_date}"
         )
 
-        cfg = load_epfr_config()
-        api_key = require_mistral_api_key(cfg)
-
         prompt_template = _load_prompt_template()
         self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
         self.model_name = model_name
         self.temperature = temperature
-        self.client = MistralClient(api_key=api_key, timeout_ms=cfg.ai_timeout * 1000)
-        logger.info(f"AIDistiller ready: timeout_ms={cfg.ai_timeout * 1000}, prompt_template_loaded=True")
+        self.max_tokens = 4000
+        logger.info("AIDistiller ready: prompt_template_loaded=True")
 
     async def extract(self, markdown_text: str) -> _RawExtraction:
         logger.debug(f"Sending extraction request: text_length={len(markdown_text)} chars")
-        completion = await self.client.chat.parse_async(
+        request = ChatCompletionRequest(
             model=self.model_name,
             messages=[
                 {"role": "system", "content": self.system_instruction},
                 {"role": "user", "content": markdown_text},
             ],
-            response_format=_RawExtraction,
             temperature=self.temperature,
-            max_tokens=4000,
+            max_tokens=self.max_tokens,
         )
-
-        if not completion.choices:
-            raise ValueError("Mistral chat.parse returned no choices")
-
-        message = completion.choices[0].message
-        if message is None or message.parsed is None:
-            raise ValueError("Mistral chat.parse returned empty parsed payload")
-
-        parsed = message.parsed
-        if isinstance(parsed, _RawExtraction):
-            result = parsed
-        else:
-            result = _RawExtraction.model_validate(parsed)
-
-        logger.debug(
-            f"Extraction result: has_dividends={result.has_dividends}, dividend_count={len(result.dividends)}, ai_comment={result.ai_comment!r}"
-        )
-        return result
+        response_format_dict = response_format_from_pydantic_model(_RawExtraction)
+        response_format_obj = ResponseFormat(**response_format_dict)
+        response = await mistralai_chat_parse(request, response_format_obj)
+        if not response.choices or not response.choices[0].message or not response.choices[0].message.content:
+            raise ValueError("No parsed response from Mistral")
+        return _RawExtraction.model_validate_json(str(response.choices[0].message.content))
 
     async def extract_with_retry(self, markdown_text: str, max_retries: int, file_path: Path) -> _RawExtraction:
         logger.info(f"Starting extraction with retries: file={file_path.name}, max_retries={max_retries}")
