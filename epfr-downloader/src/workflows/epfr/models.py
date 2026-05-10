@@ -120,6 +120,111 @@ class EpfrPdfOcrOutput(BaseModel):
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
+# PDF OCR Workflow Internal Models
+# These models support the 3-activity split for UI progress tracking
+
+
+class PdfOcrWorkItem(BaseModel):
+    """Represents a single PDF file to be OCR'd.
+
+    Used by the scan_pdf_entries activity to pass work items to the
+    process_pdf_ocr activity.
+
+    Attributes:
+        unp: Company tax identifier (folder name).
+        file_index: Index of the file entry in the mapping[unp]["files"] list.
+        filename: Original PDF filename.
+        file_path: Full filesystem path to the PDF file.
+        entry: Original mapping entry dictionary for this file.
+    """
+
+    unp: str
+    file_index: int
+    filename: str
+    file_path: str
+    entry: dict[str, Any]
+
+
+class PdfOcrScanResult(BaseModel):
+    """Result of scanning the mapping file for PDF entries.
+
+    Output of the scan_pdf_entries activity and input to process_pdf_ocr.
+
+    Attributes:
+        mapping_path: Absolute path to the mapping JSON file.
+        mapping_raw: Full mapping dictionary for downstream processing.
+        total_unps_scanned: Number of UNP entries scanned.
+        total_pdf_entries: Total count of PDF files found.
+        work_items: List of PDF files that need OCR processing.
+        by_unp: Per-UNP statistics from the scan phase.
+        output_dir: Resolved output directory path.
+        mapping_filename: Resolved mapping filename.
+        cleanup_source: Resolved cleanup_source flag.
+    """
+
+    mapping_path: str
+    mapping_raw: dict[str, Any]
+    total_unps_scanned: int
+    total_pdf_entries: int
+    work_items: list[PdfOcrWorkItem]
+    by_unp: dict[str, dict[str, Any]]
+    output_dir: str
+    mapping_filename: str
+    cleanup_source: bool | None = None
+
+
+class PdfOcrFileResult(BaseModel):
+    """Result of OCR'ing a single PDF file.
+
+    Captures the outcome of processing one PDF entry.
+
+    Attributes:
+        unp: Company tax identifier.
+        file_index: Index in the mapping[unp]["files"] list.
+        status: Processing result - SUCCESS, FAILED, or SKIPPED.
+        original_filename: Original PDF filename.
+        new_filename: Markdown filename if successful, None otherwise.
+        source_path: Full path to the source PDF file.
+        error: Error message if status is FAILED or SKIPPED.
+        converted_from: Value for the converted_from field in updated mapping.
+    """
+
+    unp: str
+    file_index: int
+    status: Literal["SUCCESS", "FAILED", "SKIPPED"]
+    original_filename: str
+    new_filename: str | None = None
+    source_path: str | None = None
+    error: str | None = None
+    converted_from: str | None = None
+
+
+class PdfOcrProcessResult(BaseModel):
+    """Result of the OCR processing phase.
+
+    Output of the process_pdf_ocr activity and input to finalize_ocr_mapping.
+
+    Attributes:
+        updated_mapping: Mapping dict with PDF entries updated to .md.
+        results: Per-file results from OCR processing.
+        total_successful: Count of successfully OCR'd files.
+        total_failed: Count of failed OCR attempts.
+        total_skipped: Count of skipped files (already exists, etc.).
+        failed_files: List of paths to failed PDF files.
+        skipped_files: List of paths to skipped PDF files.
+        cleaned_up_files: List of paths to PDFs deleted after successful OCR.
+    """
+
+    updated_mapping: dict[str, Any]
+    results: list[PdfOcrFileResult]
+    total_successful: int
+    total_failed: int
+    total_skipped: int
+    failed_files: list[str]
+    skipped_files: list[str]
+    cleaned_up_files: list[str]
+
+
 PeriodType = Literal["annual", "halfyear", "quarterly"]
 ShareType = Literal["common", "preferred"]
 
