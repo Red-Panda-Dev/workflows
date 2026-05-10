@@ -16,6 +16,23 @@ Four separate workflows, each independently invocable:
 ```text
 src/
 ├── discover.py                      # Scans workflows/ for workflow classes, starts Mistral worker
+├── tests/                           # Unit tests (15 modules)
+│   ├── conftest.py                  # Shared fixtures
+│   ├── test_client.py              # API client and download logic
+│   ├── test_config.py              # Configuration constants
+│   ├── test_converter.py           # Document conversion
+│   ├── test_detector.py            # Magic-byte detection
+│   ├── test_extractor.py           # Archive extraction and OOXML detection
+│   ├── test_models.py              # Pydantic model parsing
+│   ├── test_markdown_cleanup.py    # Markdown cleanup logic
+│   ├── test_pdf_ocr.py            # PDF OCR conversion (skipped by default)
+│   ├── test_pdf_ocr_mapping.py    # PDF OCR mapping update logic
+│   ├── test_pdf_ocr_workflow.py   # PDF OCR workflow wrapper
+│   ├── test_ai_distiller.py       # AI distillation
+│   ├── test_share_payout_exporter.py # Share payout export
+│   ├── test_workflow_wrappers.py   # Main workflow + share exporter wrappers
+│   ├── test_start_cli.py          # CLI start script
+│   └── test_fixture_inventory.py  # Test fixture completeness checks
 └── workflows/
     ├── __init__.py                  # Empty package marker (auto-discovery entry point)
     ├── start.py                     # CLI to trigger workflow execution via Mistral client
@@ -34,16 +51,8 @@ src/
         ├── share_payout_exporter.py # Join distilled dividends with share reference CSV
         ├── share_payout_exporter_workflow.py # epfr-share-payout-exporter workflow + activity
         ├── workflow.py              # epfr-files-downloader workflow + 5 activities (main pipeline)
-        ├── prompts/                 # Prompt templates for AI distillation
-        │   └── dividends_parsing.md
-        └── tests/                   # Unit tests (7 modules)
-            ├── test_client.py       # Client and download logic tests
-            ├── test_converter.py    # Document conversion tests
-            ├── test_detector.py     # Magic-byte detection tests
-            ├── test_extractor.py    # Archive extraction and OOXML detection tests
-            ├── test_models.py       # Pydantic model parsing tests
-            ├── test_pdf_ocr.py      # PDF OCR conversion tests (skipped by default)
-            └── test_ai_distiller.py # AI distillation tests
+        └── prompts/                 # Prompt templates for AI distillation
+            └── dividends_parsing.md
 output/                              # Downloaded files, mapping JSON, distilled JSON (gitignored)
 Dockerfile                           # Container image for worker deployment
 generate_sql.py                      # Standalone: share_payouts_by_unp.json → SQL INSERT statements
