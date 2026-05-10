@@ -2,22 +2,31 @@
 
 import asyncio
 import json
+import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+os.environ.pop("AGENT", None)
 
 import pytest
 
-from workflows.epfr import ai_distiller
+from workflows.epfr import ai_distiller, ai_distiller_workflow
 from workflows.epfr.ai_distiller import (
     AIDistiller,
     _RawDividendEntry,
     _RawExtraction,
     _load_prompt_template,
+    _parse_iso_date,
+    _safe_replace_year,
+    _shift_months,
+    _validate_and_correct_dates,
     normalize_and_fill_dividend,
 )
-from workflows.epfr.models import EpfrAiDistillerInput, EpfrDividendEntry
+from workflows.epfr.ai_distiller_workflow import EpfrAiDistillerWorkflow, distill_epfr_dividends
+from workflows.epfr.models import EpfrAiDistillerInput, EpfrAiDistillerOutput, EpfrDividendEntry
 
 
 def test_normalize_and_fill_dividend_autofills_dates_and_period_fields():
@@ -581,3 +590,1298 @@ def test_run_ai_distillation_uses_fixtures_without_network(
     assert stats["successful"] == 2
     assert stats["failed"] == 0
     assert actual_semantics == expected_semantics
+
+
+# ==================== Phase 1: Pure Unit Tests for Helpers ====================
+
+
+class TestParseIsoDate:
+    def test_valid_iso_date(self):
+        assert _parse_iso_date("2025-03-28") == date(2025, 3, 28)
+
+    def test_none_returns_none(self):
+        assert _parse_iso_date(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_iso_date("") is None
+
+    def test_invalid_format_raises(self):
+        with pytest.raises(ValueError):
+            _parse_iso_date("28-03-2025")
+
+    def test_malformed_month_raises(self):
+        with pytest.raises(ValueError):
+            _parse_iso_date("2025-13-01")
+
+
+class TestShiftMonths:
+    def test_forward_shift(self):
+        assert _shift_months(date(2025, 3, 15), 2) == date(2025, 5, 15)
+
+    def test_backward_shift(self):
+        assert _shift_months(date(2025, 5, 15), -2) == date(2025, 3, 15)
+
+    def test_cross_year_forward(self):
+        assert _shift_months(date(2025, 11, 15), 3) == date(2026, 2, 15)
+
+    def test_cross_year_backward(self):
+        assert _shift_months(date(2025, 2, 15), -3) == date(2024, 11, 15)
+
+    def test_day_clamp_to_30_day_month(self):
+        assert _shift_months(date(2025, 1, 31), 1) == date(2025, 2, 28)
+
+    def test_day_clamp_feb_leap_year(self):
+        assert _shift_months(date(2024, 1, 29), 1) == date(2024, 2, 29)
+
+    def test_day_clamp_feb_non_leap(self):
+        assert _shift_months(date(2025, 1, 29), 1) == date(2025, 2, 28)
+
+    def test_30_day_to_31_day_month(self):
+        assert _shift_months(date(2025, 4, 30), 1) == date(2025, 5, 30)
+
+    def test_zero_shift(self):
+        assert _shift_months(date(2025, 6, 15), 0) == date(2025, 6, 15)
+
+    def test_large_forward_12_months(self):
+        assert _shift_months(date(2025, 6, 15), 12) == date(2026, 6, 15)
+
+
+class TestSafeReplaceYear:
+    def test_normal_replacement(self):
+        assert _safe_replace_year(date(2025, 3, 15), 2026) == date(2026, 3, 15)
+
+    def test_leap_day_to_non_leap_year(self):
+        assert _safe_replace_year(date(2024, 2, 29), 2025) == date(2025, 2, 28)
+
+    def test_leap_day_to_leap_year(self):
+        assert _safe_replace_year(date(2024, 2, 29), 2028) == date(2028, 2, 29)
+
+    def test_non_leap_day_replacement(self):
+        assert _safe_replace_year(date(2025, 6, 30), 2026) == date(2026, 6, 30)
+
+
+class TestValidateAndCorrectDates:
+    def test_no_corrections_needed(self):
+        af = []
+        py, dd, rd, pd = _validate_and_correct_dates(
+            period_type="quarterly",
+            period_year=2025,
+            decision_date=date(2025, 4, 10),
+            record_date=date(2025, 4, 5),
+            payment_date=date(2025, 6, 10),
+            autofilled=af,
+        )
+        assert py == 2025
+        assert dd == date(2025, 4, 10)
+        assert rd == date(2025, 4, 5)
+        assert pd == date(2025, 6, 10)
+        assert af == []
+
+    def test_both_record_and_payment_corrected(self):
+        af = []
+        py, dd, rd, pd = _validate_and_correct_dates(
+            period_type="quarterly",
+            period_year=2024,
+            decision_date=date(2025, 6, 15),
+            record_date=date(2024, 1, 10),
+            payment_date=date(2027, 1, 1),
+            autofilled=af,
+        )
+        assert rd == date(2025, 5, 15)
+        assert pd == date(2025, 8, 15)
+        assert "record_date_corrected" in af
+        assert "payment_date_corrected" in af
+
+    def test_non_annual_skips_annual_branch(self):
+        af = []
+        py, dd, rd, pd = _validate_and_correct_dates(
+            period_type="halfyear",
+            period_year=2025,
+            decision_date=date(2025, 4, 10),
+            record_date=date(2025, 4, 5),
+            payment_date=date(2025, 6, 10),
+            autofilled=af,
+        )
+        assert py == 2025
+        assert "period_year_corrected" not in af
+        assert "dates_year_corrected" not in af
+
+    def test_equal_decision_and_record_date_ok(self):
+        af = []
+        _, _, rd, _ = _validate_and_correct_dates(
+            period_type="quarterly",
+            period_year=2025,
+            decision_date=date(2025, 4, 10),
+            record_date=date(2025, 4, 10),
+            payment_date=date(2025, 4, 11),
+            autofilled=af,
+        )
+        assert rd == date(2025, 4, 10)
+        assert "record_date_corrected" not in af
+
+    def test_payment_one_day_after_decision_ok(self):
+        af = []
+        _, _, _, pd = _validate_and_correct_dates(
+            period_type="quarterly",
+            period_year=2025,
+            decision_date=date(2025, 4, 10),
+            record_date=date(2025, 4, 5),
+            payment_date=date(2025, 4, 11),
+            autofilled=af,
+        )
+        assert pd == date(2025, 4, 11)
+        assert "payment_date_corrected" not in af
+
+
+# ==================== Phase 2: normalize_and_fill_dividend Edge Cases ====================
+
+
+class TestNormalizeAndFillDividendEdgeCases:
+    def test_invalid_share_type_defaults_to_common(self):
+        raw = _RawDividendEntry(
+            share_type="bond",
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            amount_per_share="1.0",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.share_type == "common"
+        assert "share_type" in af
+
+    def test_none_amount_defaults_to_zero(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.amount_per_share == Decimal("0")
+        assert "amount_per_share" in af
+
+    def test_integer_amount(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            amount_per_share=5,
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, _ = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.amount_per_share == Decimal("5")
+
+    def test_none_period_type_defaults_to_annual(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_number=1,
+            amount_per_share="1.0",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.period_type == "annual"
+        assert "period_type" in af
+
+    def test_none_period_number_defaults_to_1(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="annual",
+            amount_per_share="1.0",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.period_number == 1
+        assert "period_number" in af
+
+    def test_none_period_year_defaults_to_decision_year(self):
+        raw = _RawDividendEntry(
+            period_type="annual",
+            period_number=1,
+            amount_per_share="1.0",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.period_year == 2025
+        assert "period_year" in af
+
+    def test_none_decision_date_uses_upload_date(self, monkeypatch):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            amount_per_share="1.0",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2025-05-15")
+        assert normalized.decision_date == date(2026, 4, 15)
+        assert "decision_date" in af
+
+    def test_none_record_date_shifts_from_decision(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="quarterly",
+            period_number=1,
+            amount_per_share="1.0",
+            decision_date="2025-06-10",
+            payment_date="2025-08-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.record_date == date(2025, 5, 10)
+        assert "record_date" in af
+
+    def test_none_payment_date_positive_amount(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="quarterly",
+            period_number=1,
+            amount_per_share="1.5",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.payment_date == date(2025, 6, 10)
+        assert "payment_date" in af
+
+    def test_none_payment_date_zero_amount(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="quarterly",
+            period_number=1,
+            amount_per_share="0",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.payment_date == date(2025, 4, 11)
+        assert "payment_date" in af
+
+    def test_all_none_fields_autofilled(self):
+        raw = _RawDividendEntry(amount_per_share="0.5")
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2025-05-15")
+        assert "share_type" in af
+        assert "period_type" in af
+        assert "period_number" in af
+        assert "decision_date" in af
+        assert "record_date" in af
+        assert "payment_date" in af
+        assert isinstance(normalized, EpfrDividendEntry)
+
+    def test_validation_error_recovery_path(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            amount_per_share="1.0",
+            decision_date="2025-06-10",
+            record_date="2025-07-15",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.record_date <= normalized.decision_date
+        assert normalized.payment_date > normalized.decision_date
+        assert "record_date_corrected" in af
+        assert "payment_date_corrected" in af
+
+    def test_invalid_period_type_defaults_to_annual(self):
+        raw = _RawDividendEntry(
+            period_year=2025,
+            period_type="monthly",
+            period_number=1,
+            amount_per_share="1.0",
+            decision_date="2025-04-10",
+            record_date="2025-04-05",
+            payment_date="2025-06-10",
+        )
+        normalized, af = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
+        assert normalized.period_type == "annual"
+
+
+# ==================== Phase 3: AIDistiller Class Tests ====================
+
+
+class TestAIDistillerInit:
+    def test_replaces_reference_date_placeholder(self, monkeypatch, tmp_path):
+        prompt_dir = tmp_path / "prompts"
+        prompt_dir.mkdir()
+        (prompt_dir / "dividends_parsing.md").write_text("System {{REFERENCE_DATE}} end", encoding="utf-8")
+        monkeypatch.setattr(ai_distiller, "__file__", str(tmp_path / "ai_distiller.py"))
+        monkeypatch.setattr(ai_distiller, "_PROMPT_TEMPLATE", None)
+
+        distiller = AIDistiller(model_name="test-model", temperature=0.5, reference_date="2025-01-01")
+        assert "2025-01-01" in distiller.system_instruction
+        assert "{{REFERENCE_DATE}}" not in distiller.system_instruction
+
+    def test_sets_max_tokens(self, monkeypatch, tmp_path):
+        prompt_dir = tmp_path / "prompts"
+        prompt_dir.mkdir()
+        (prompt_dir / "dividends_parsing.md").write_text("prompt", encoding="utf-8")
+        monkeypatch.setattr(ai_distiller, "__file__", str(tmp_path / "ai_distiller.py"))
+        monkeypatch.setattr(ai_distiller, "_PROMPT_TEMPLATE", None)
+
+        distiller = AIDistiller(model_name="test", temperature=0.0, reference_date="2025-01-01")
+        assert distiller.max_tokens == 4000
+
+    def test_stores_model_and_temperature(self, monkeypatch, tmp_path):
+        prompt_dir = tmp_path / "prompts"
+        prompt_dir.mkdir()
+        (prompt_dir / "dividends_parsing.md").write_text("prompt", encoding="utf-8")
+        monkeypatch.setattr(ai_distiller, "__file__", str(tmp_path / "ai_distiller.py"))
+        monkeypatch.setattr(ai_distiller, "_PROMPT_TEMPLATE", None)
+
+        distiller = AIDistiller(model_name="mistral-large", temperature=0.3, reference_date="2025-01-01")
+        assert distiller.model_name == "mistral-large"
+        assert distiller.temperature == 0.3
+
+
+class TestAIDistillerExtract:
+    def _make_distiller(self):
+        d = AIDistiller.__new__(AIDistiller)
+        d.model_name = "test"
+        d.temperature = 0.0
+        d.max_tokens = 4000
+        d.system_instruction = "system prompt"
+        return d
+
+    def test_successful_extraction(self, monkeypatch):
+        distiller = self._make_distiller()
+        expected = _RawExtraction(has_dividends=True, ai_comment="test", dividends=[])
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = expected.model_dump_json()
+
+        async def fake_chat_parse(request, response_format):
+            return mock_response
+
+        monkeypatch.setattr(ai_distiller, "mistralai_chat_parse", fake_chat_parse)
+        result = asyncio.run(distiller.extract("some markdown"))
+        assert result.has_dividends is True
+        assert result.ai_comment == "test"
+
+    def test_empty_choices_raises(self, monkeypatch):
+        distiller = self._make_distiller()
+        mock_response = MagicMock()
+        mock_response.choices = []
+
+        async def fake_chat_parse(request, response_format):
+            return mock_response
+
+        monkeypatch.setattr(ai_distiller, "mistralai_chat_parse", fake_chat_parse)
+        with pytest.raises(ValueError, match="No parsed response"):
+            asyncio.run(distiller.extract("text"))
+
+    def test_none_message_raises(self, monkeypatch):
+        distiller = self._make_distiller()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message = None
+
+        async def fake_chat_parse(request, response_format):
+            return mock_response
+
+        monkeypatch.setattr(ai_distiller, "mistralai_chat_parse", fake_chat_parse)
+        with pytest.raises(ValueError, match="No parsed response"):
+            asyncio.run(distiller.extract("text"))
+
+    def test_empty_string_content_raises(self, monkeypatch):
+        distiller = self._make_distiller()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = ""
+
+        async def fake_chat_parse(request, response_format):
+            return mock_response
+
+        monkeypatch.setattr(ai_distiller, "mistralai_chat_parse", fake_chat_parse)
+        with pytest.raises(ValueError, match="No parsed response"):
+            asyncio.run(distiller.extract("text"))
+
+    def test_extracts_dividend_entries(self, monkeypatch):
+        distiller = self._make_distiller()
+        raw = _RawExtraction(
+            has_dividends=True,
+            ai_comment="found",
+            dividends=[
+                _RawDividendEntry(
+                    share_type="common",
+                    period_year=2025,
+                    period_type="annual",
+                    period_number=1,
+                    amount_per_share="0.5",
+                    decision_date="2025-04-10",
+                    record_date="2025-04-05",
+                    payment_date="2025-06-10",
+                )
+            ],
+        )
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = raw.model_dump_json()
+
+        async def fake_chat_parse(request, response_format):
+            return mock_response
+
+        monkeypatch.setattr(ai_distiller, "mistralai_chat_parse", fake_chat_parse)
+        result = asyncio.run(distiller.extract("dividend doc"))
+        assert len(result.dividends) == 1
+        assert result.dividends[0].share_type == "common"
+
+
+class TestExtractWithRetryAdditional:
+    def test_rate_limited_uses_longer_backoff(self, monkeypatch, tmp_path):
+        distiller = AIDistiller.__new__(AIDistiller)
+        attempts = []
+        expected = _RawExtraction(has_dividends=False, ai_comment="rate limited")
+        wait_calls = []
+
+        async def fake_extract(text):
+            attempts.append(text)
+            if len(attempts) == 1:
+                raise Exception("429 rate limit exceeded")
+            return expected
+
+        async def fake_sleep(w):
+            pass
+
+        distiller.extract = fake_extract
+        monkeypatch.setattr(
+            ai_distiller,
+            "_compute_retry_wait_seconds",
+            lambda attempt, *, is_rate_limited: (wait_calls.append(is_rate_limited), 5.0)[1],
+        )
+        monkeypatch.setattr(ai_distiller.asyncio, "sleep", fake_sleep)
+        result = asyncio.run(distiller.extract_with_retry("text", max_retries=2, file_path=tmp_path / "f.md"))
+        assert result == expected
+        assert wait_calls == [True]
+
+    def test_cancelled_error_is_retryable(self, monkeypatch, tmp_path):
+        distiller = AIDistiller.__new__(AIDistiller)
+        attempts = []
+        expected = _RawExtraction(has_dividends=True, ai_comment="ok")
+
+        async def fake_extract(text):
+            attempts.append(text)
+            if len(attempts) == 1:
+                raise asyncio.CancelledError()
+            return expected
+
+        async def fake_sleep(w):
+            pass
+
+        distiller.extract = fake_extract
+        monkeypatch.setattr(ai_distiller, "_compute_retry_wait_seconds", lambda a, *, is_rate_limited: 0.1)
+        monkeypatch.setattr(ai_distiller.asyncio, "sleep", fake_sleep)
+        result = asyncio.run(distiller.extract_with_retry("text", max_retries=2, file_path=tmp_path / "f.md"))
+        assert result == expected
+        assert len(attempts) == 2
+
+    def test_non_retryable_error_raises_immediately(self, monkeypatch, tmp_path):
+        distiller = AIDistiller.__new__(AIDistiller)
+
+        async def fake_extract(text):
+            raise ValueError("bad input data")
+
+        distiller.extract = fake_extract
+        with pytest.raises(RuntimeError, match="AI extraction failed"):
+            asyncio.run(distiller.extract_with_retry("text", max_retries=3, file_path=tmp_path / "f.md"))
+
+    def test_max_retries_one_succeeds(self, monkeypatch, tmp_path):
+        distiller = AIDistiller.__new__(AIDistiller)
+        expected = _RawExtraction(has_dividends=True, ai_comment="ok")
+
+        async def fake_extract(text):
+            return expected
+
+        distiller.extract = fake_extract
+        result = asyncio.run(distiller.extract_with_retry("text", max_retries=1, file_path=tmp_path / "f.md"))
+        assert result == expected
+
+    def test_max_retries_zero_raises_on_failure(self, monkeypatch, tmp_path):
+        distiller = AIDistiller.__new__(AIDistiller)
+
+        async def fake_extract(text):
+            raise RuntimeError("503 overload")
+
+        distiller.extract = fake_extract
+        with pytest.raises(RuntimeError, match="Unexpected retry loop completion"):
+            asyncio.run(distiller.extract_with_retry("text", max_retries=0, file_path=tmp_path / "f.md"))
+
+    def test_overload_is_retryable(self, monkeypatch, tmp_path):
+        distiller = AIDistiller.__new__(AIDistiller)
+        attempts = []
+        expected = _RawExtraction(has_dividends=False, ai_comment="ok")
+
+        async def fake_extract(text):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("502 bad gateway")
+            return expected
+
+        async def fake_sleep(w):
+            pass
+
+        distiller.extract = fake_extract
+        monkeypatch.setattr(ai_distiller, "_compute_retry_wait_seconds", lambda a, *, is_rate_limited: 0.1)
+        monkeypatch.setattr(ai_distiller.asyncio, "sleep", fake_sleep)
+        result = asyncio.run(distiller.extract_with_retry("text", max_retries=2, file_path=tmp_path / "f.md"))
+        assert result == expected
+
+
+# ==================== Phase 4: _compute_retry_wait_seconds Expanded ====================
+
+
+class TestComputeRetryWaitAdditional:
+    def test_returns_at_least_0_1(self, monkeypatch):
+        monkeypatch.setattr(
+            ai_distiller,
+            "load_epfr_config",
+            lambda: SimpleNamespace(
+                ai_retry_backoff_base=2,
+                ai_retry_backoff_max=10,
+                ai_retry_backoff_max_429=30,
+                ai_retry_jitter_ratio=1.0,
+            ),
+        )
+        monkeypatch.setattr(ai_distiller.random, "uniform", lambda low, high: -100)
+        assert ai_distiller._compute_retry_wait_seconds(0, is_rate_limited=False) == 0.1
+
+    def test_non_rate_limited_capped_at_max(self, monkeypatch):
+        monkeypatch.setattr(
+            ai_distiller,
+            "load_epfr_config",
+            lambda: SimpleNamespace(
+                ai_retry_backoff_base=2,
+                ai_retry_backoff_max=5,
+                ai_retry_backoff_max_429=30,
+                ai_retry_jitter_ratio=0.0,
+            ),
+        )
+        monkeypatch.setattr(ai_distiller.random, "uniform", lambda low, high: 0)
+        result = ai_distiller._compute_retry_wait_seconds(10, is_rate_limited=False)
+        assert result <= 5.0
+
+    def test_rate_limited_capped_at_429_max(self, monkeypatch):
+        monkeypatch.setattr(
+            ai_distiller,
+            "load_epfr_config",
+            lambda: SimpleNamespace(
+                ai_retry_backoff_base=2,
+                ai_retry_backoff_max=5,
+                ai_retry_backoff_max_429=15,
+                ai_retry_jitter_ratio=0.0,
+            ),
+        )
+        monkeypatch.setattr(ai_distiller.random, "uniform", lambda low, high: 0)
+        result = ai_distiller._compute_retry_wait_seconds(10, is_rate_limited=True)
+        assert result <= 15.0
+
+    def test_result_rounded_to_2_decimal_places(self, monkeypatch):
+        monkeypatch.setattr(
+            ai_distiller,
+            "load_epfr_config",
+            lambda: SimpleNamespace(
+                ai_retry_backoff_base=3,
+                ai_retry_backoff_max=100,
+                ai_retry_backoff_max_429=100,
+                ai_retry_jitter_ratio=0.1,
+            ),
+        )
+        monkeypatch.setattr(ai_distiller.random, "uniform", lambda low, high: 0.333)
+        result = ai_distiller._compute_retry_wait_seconds(0, is_rate_limited=False)
+        assert result == round(result, 2)
+
+
+# ==================== Phase 5: run_ai_distillation Integration Tests ====================
+
+
+def _make_file_entry(filename, file_id=1, original_name="Test", upload_date="2026-01-15"):
+    return {
+        "id": file_id,
+        "filename": filename,
+        "original_name": original_name,
+        "upload_date": upload_date,
+    }
+
+
+class TestRunAiDistillationIntegration:
+    def _run_with_mapping(self, monkeypatch, tmp_path, mapping, fixture_raw=None, **kwargs):
+        if fixture_raw is None:
+            fixture_raw = {}
+
+        for unp, data in mapping.items():
+            if not isinstance(data, dict):
+                continue
+            unp_dir = tmp_path / unp
+            unp_dir.mkdir(exist_ok=True)
+            for f in data.get("files", []):
+                if isinstance(f, dict):
+                    (unp_dir / f["filename"]).write_text("# markdown", encoding="utf-8")
+
+        (tmp_path / "unp_file_mapping.json").write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+
+        class FakeDistiller:
+            def __init__(self_inner, model_name, temperature, reference_date):
+                pass
+
+            async def extract_with_retry(self_inner, markdown_text, max_retries, file_path):
+                if file_path.name in fixture_raw:
+                    return fixture_raw[file_path.name]
+                return _RawExtraction(has_dividends=False, ai_comment="default")
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+
+        defaults = dict(
+            output_dir=str(tmp_path),
+            mapping_filename="unp_file_mapping.json",
+            output_filename="ai_distilled_dividends.json",
+            model_name="fake",
+            temperature=0.0,
+            max_retries=2,
+            file_delay_seconds=0.0,
+            unps=None,
+        )
+        defaults.update(kwargs)
+        return asyncio.run(ai_distiller.run_ai_distillation(EpfrAiDistillerInput(**defaults)))
+
+    def test_mapping_not_found_raises(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        with pytest.raises(FileNotFoundError, match="Mapping file not found"):
+            asyncio.run(
+                ai_distiller.run_ai_distillation(
+                    EpfrAiDistillerInput(
+                        output_dir=str(tmp_path),
+                        mapping_filename="missing.json",
+                        output_filename="out.json",
+                        model_name="m",
+                        temperature=0.0,
+                        max_retries=1,
+                        file_delay_seconds=0.0,
+                    )
+                )
+            )
+
+    def test_unp_filter_skips_non_selected(self, monkeypatch, tmp_path):
+        mapping = {
+            "111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]},
+            "222": {"title": "Co B", "holder_id": 2, "files": [_make_file_entry("b.md")]},
+        }
+        stats = self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={"a.md": _RawExtraction(has_dividends=False, ai_comment="no")},
+            unps=["111"],
+        )
+        assert stats["total_companies"] == 1
+        output = json.loads((tmp_path / "ai_distilled_dividends.json").read_text())
+        assert "111" in output
+        assert "222" not in output
+
+    def test_no_unp_filter_processes_all(self, monkeypatch, tmp_path):
+        mapping = {
+            "111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]},
+            "222": {"title": "Co B", "holder_id": 2, "files": [_make_file_entry("b.md")]},
+        }
+        stats = self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={
+                "a.md": _RawExtraction(has_dividends=False, ai_comment="ok"),
+                "b.md": _RawExtraction(has_dividends=False, ai_comment="ok"),
+            },
+        )
+        assert stats["total_companies"] == 2
+        assert stats["total_files"] == 2
+
+    def test_non_dict_file_entry_skipped(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": ["not_a_dict", 42]}}
+        stats = self._run_with_mapping(monkeypatch, tmp_path, mapping)
+        assert stats["total_files"] == 0
+
+    def test_non_markdown_file_skipped(self, monkeypatch, tmp_path):
+        mapping = {
+            "111": {
+                "title": "Co A",
+                "holder_id": 1,
+                "files": [_make_file_entry("report.pdf"), _make_file_entry("data.xlsx")],
+            }
+        }
+        stats = self._run_with_mapping(monkeypatch, tmp_path, mapping)
+        assert stats["total_files"] == 0
+
+    def test_missing_md_file_records_error(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("missing.md")]}}
+        (tmp_path / "111").mkdir()
+        (tmp_path / "unp_file_mapping.json").write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+
+        class FakeDistiller:
+            def __init__(self_inner, *a, **kw):
+                pass
+
+            async def extract_with_retry(self_inner, *a, **kw):
+                return _RawExtraction()
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        stats = asyncio.run(
+            ai_distiller.run_ai_distillation(
+                EpfrAiDistillerInput(
+                    output_dir=str(tmp_path),
+                    mapping_filename="unp_file_mapping.json",
+                    output_filename="out.json",
+                    model_name="m",
+                    temperature=0.0,
+                    max_retries=1,
+                    file_delay_seconds=0.0,
+                )
+            )
+        )
+        assert stats["failed"] == 1
+        assert stats["successful"] == 0
+        assert len(stats["failed_files"]) == 1
+
+    def test_empty_md_file_records_error(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("empty.md")]}}
+        (tmp_path / "111").mkdir()
+        (tmp_path / "111" / "empty.md").write_text("   \n  \n", encoding="utf-8")
+        (tmp_path / "unp_file_mapping.json").write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+
+        class FakeDistiller:
+            def __init__(self_inner, *a, **kw):
+                pass
+
+            async def extract_with_retry(self_inner, *a, **kw):
+                return _RawExtraction()
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        stats = asyncio.run(
+            ai_distiller.run_ai_distillation(
+                EpfrAiDistillerInput(
+                    output_dir=str(tmp_path),
+                    mapping_filename="unp_file_mapping.json",
+                    output_filename="out.json",
+                    model_name="m",
+                    temperature=0.0,
+                    max_retries=1,
+                    file_delay_seconds=0.0,
+                )
+            )
+        )
+        assert stats["failed"] == 1
+
+    def test_company_with_no_md_files_excluded(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("report.pdf")]}}
+        stats = self._run_with_mapping(monkeypatch, tmp_path, mapping)
+        assert stats["total_companies"] == 0
+
+    def test_file_delay_sleeps_between_files(self, monkeypatch, tmp_path):
+        mapping = {
+            "111": {
+                "title": "Co A",
+                "holder_id": 1,
+                "files": [_make_file_entry("a.md"), _make_file_entry("b.md")],
+            }
+        }
+        sleeps = []
+
+        async def fake_sleep(w):
+            sleeps.append(w)
+
+        monkeypatch.setattr(ai_distiller.asyncio, "sleep", fake_sleep)
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={
+                "a.md": _RawExtraction(has_dividends=False, ai_comment="ok"),
+                "b.md": _RawExtraction(has_dividends=False, ai_comment="ok"),
+            },
+            file_delay_seconds=0.5,
+        )
+        assert sleeps == [0.5, 0.5]
+
+    def test_atomic_write_produces_valid_json(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]}}
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={"a.md": _RawExtraction(has_dividends=True, ai_comment="ok")},
+        )
+        output = json.loads((tmp_path / "ai_distilled_dividends.json").read_text())
+        assert isinstance(output, dict)
+        assert "111" in output
+
+    def test_no_temp_files_left(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]}}
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={"a.md": _RawExtraction(has_dividends=False, ai_comment="ok")},
+        )
+        temp_files = list(tmp_path.glob(".ai_distilled_*"))
+        assert temp_files == []
+
+    def test_none_output_dir_raises(self, monkeypatch):
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        with pytest.raises(AssertionError):
+            asyncio.run(
+                ai_distiller.run_ai_distillation(
+                    EpfrAiDistillerInput(
+                        output_dir=None,
+                        mapping_filename="m.json",
+                        output_filename="o.json",
+                        model_name="m",
+                        temperature=0.0,
+                        max_retries=1,
+                        file_delay_seconds=0.0,
+                    )
+                )
+            )
+
+    def test_non_dict_company_data_graceful(self, monkeypatch, tmp_path):
+        mapping = {"111": "not a dict"}
+        (tmp_path / "unp_file_mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
+
+        class FakeDistiller:
+            def __init__(self_inner, *a, **kw):
+                pass
+
+            async def extract_with_retry(self_inner, *a, **kw):
+                return _RawExtraction()
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        stats = asyncio.run(
+            ai_distiller.run_ai_distillation(
+                EpfrAiDistillerInput(
+                    output_dir=str(tmp_path),
+                    mapping_filename="unp_file_mapping.json",
+                    output_filename="out.json",
+                    model_name="m",
+                    temperature=0.0,
+                    max_retries=1,
+                    file_delay_seconds=0.0,
+                )
+            )
+        )
+        assert stats["total_files"] == 0
+
+    def test_non_list_files_graceful(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co", "holder_id": 1, "files": "not a list"}}
+        (tmp_path / "unp_file_mapping.json").write_text(json.dumps(mapping), encoding="utf-8")
+
+        class FakeDistiller:
+            def __init__(self_inner, *a, **kw):
+                pass
+
+            async def extract_with_retry(self_inner, *a, **kw):
+                return _RawExtraction()
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+        stats = asyncio.run(
+            ai_distiller.run_ai_distillation(
+                EpfrAiDistillerInput(
+                    output_dir=str(tmp_path),
+                    mapping_filename="unp_file_mapping.json",
+                    output_filename="out.json",
+                    model_name="m",
+                    temperature=0.0,
+                    max_retries=1,
+                    file_delay_seconds=0.0,
+                )
+            )
+        )
+        assert stats["total_files"] == 0
+
+    def test_no_dividends_ai_comment_preserved(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]}}
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={"a.md": _RawExtraction(has_dividends=False, ai_comment="no dividends here")},
+        )
+        output = json.loads((tmp_path / "ai_distilled_dividends.json").read_text())
+        assert output["111"]["files"][0]["ai_comment"] == "no dividends here"
+        assert output["111"]["files"][0]["has_dividends"] is False
+
+    def test_multiple_dividends_per_file(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]}}
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={
+                "a.md": _RawExtraction(
+                    has_dividends=True,
+                    ai_comment="both share types",
+                    dividends=[
+                        _RawDividendEntry(
+                            share_type="common",
+                            period_year=2025,
+                            period_type="annual",
+                            period_number=1,
+                            amount_per_share="0.5",
+                            decision_date="2025-04-10",
+                            record_date="2025-04-05",
+                            payment_date="2025-06-10",
+                        ),
+                        _RawDividendEntry(
+                            share_type="preferred",
+                            period_year=2025,
+                            period_type="annual",
+                            period_number=1,
+                            amount_per_share="0.3",
+                            decision_date="2025-04-10",
+                            record_date="2025-04-05",
+                            payment_date="2025-06-10",
+                        ),
+                    ],
+                )
+            },
+        )
+        output = json.loads((tmp_path / "ai_distilled_dividends.json").read_text())
+        assert len(output["111"]["files"][0]["dividends"]) == 2
+
+    def test_autofilled_fields_deduplicated_sorted(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "Co A", "holder_id": 1, "files": [_make_file_entry("a.md")]}}
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={
+                "a.md": _RawExtraction(
+                    has_dividends=True,
+                    ai_comment="ok",
+                    dividends=[
+                        _RawDividendEntry(share_type="common", amount_per_share="1.0", decision_date="2025-04-10"),
+                        _RawDividendEntry(share_type="common", amount_per_share="2.0", decision_date="2025-05-10"),
+                    ],
+                )
+            },
+        )
+        output = json.loads((tmp_path / "ai_distilled_dividends.json").read_text())
+        fields = output["111"]["files"][0]["autofilled_fields"]
+        assert fields == sorted(set(fields))
+
+    def test_cyrillic_company_name_preserved(self, monkeypatch, tmp_path):
+        mapping = {"111": {"title": "ОАО «Тест-Агро»", "holder_id": 1, "files": [_make_file_entry("a.md")]}}
+        self._run_with_mapping(
+            monkeypatch,
+            tmp_path,
+            mapping,
+            fixture_raw={"a.md": _RawExtraction(has_dividends=False, ai_comment="ok")},
+        )
+        output = json.loads((tmp_path / "ai_distilled_dividends.json").read_text())
+        assert output["111"]["company_name"] == "ОАО «Тест-Агро»"
+
+    def test_empty_mapping_produces_empty_result(self, monkeypatch, tmp_path):
+        (tmp_path / "unp_file_mapping.json").write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+
+        class FakeDistiller:
+            def __init__(self_inner, *a, **kw):
+                pass
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        stats = asyncio.run(
+            ai_distiller.run_ai_distillation(
+                EpfrAiDistillerInput(
+                    output_dir=str(tmp_path),
+                    mapping_filename="unp_file_mapping.json",
+                    output_filename="out.json",
+                    model_name="m",
+                    temperature=0.0,
+                    max_retries=1,
+                    file_delay_seconds=0.0,
+                )
+            )
+        )
+        assert stats["total_companies"] == 0
+        assert stats["total_files"] == 0
+
+    def test_file_error_does_not_stop_pipeline(self, monkeypatch, tmp_path):
+        mapping = {
+            "111": {
+                "title": "Co A",
+                "holder_id": 1,
+                "files": [_make_file_entry("bad.md"), _make_file_entry("good.md")],
+            }
+        }
+
+        class FakeDistiller:
+            def __init__(self_inner, *a, **kw):
+                pass
+
+            async def extract_with_retry(self_inner, text, max_retries, file_path):
+                if "bad" in file_path.name:
+                    raise RuntimeError("extraction failed")
+                return _RawExtraction(has_dividends=True, ai_comment="ok")
+
+        monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
+        monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
+
+        unp_dir = tmp_path / "111"
+        unp_dir.mkdir()
+        (unp_dir / "bad.md").write_text("# bad", encoding="utf-8")
+        (unp_dir / "good.md").write_text("# good", encoding="utf-8")
+        (tmp_path / "unp_file_mapping.json").write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+
+        stats = asyncio.run(
+            ai_distiller.run_ai_distillation(
+                EpfrAiDistillerInput(
+                    output_dir=str(tmp_path),
+                    mapping_filename="unp_file_mapping.json",
+                    output_filename="out.json",
+                    model_name="m",
+                    temperature=0.0,
+                    max_retries=1,
+                    file_delay_seconds=0.0,
+                )
+            )
+        )
+        assert stats["successful"] == 1
+        assert stats["failed"] == 1
+        output = json.loads((tmp_path / "out.json").read_text())
+        assert len(output["111"]["files"]) == 2
+        assert output["111"]["files"][0]["error"] is not None
+        assert output["111"]["files"][1]["error"] is None
+
+
+# ==================== Phase 6: Workflow Wrapper Tests ====================
+
+
+class TestDistillEpfrDividendsActivity:
+    def test_resolves_config_and_calls_distillation(self, monkeypatch):
+        resolved_config = {
+            "output_dir": "/tmp/out",
+            "mapping_filename": "mapping.json",
+            "output_filename": "distilled.json",
+            "model_name": "test-model",
+            "temperature": 0.0,
+            "max_retries": 3,
+            "file_delay_seconds": 1.0,
+        }
+        expected_stats = {
+            "output_path": "/tmp/out/distilled.json",
+            "total_companies": 1,
+            "total_files": 2,
+            "successful": 2,
+            "failed": 0,
+        }
+        monkeypatch.setattr(ai_distiller_workflow, "resolve_ai_distiller_input", lambda **kw: resolved_config)
+
+        async def fake_run(input_obj):
+            assert input_obj.output_dir == "/tmp/out"
+            assert input_obj.unps == ["111"]
+            return expected_stats
+
+        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        inp = EpfrAiDistillerInput(
+            output_dir="/tmp/out",
+            mapping_filename="mapping.json",
+            output_filename="distilled.json",
+            model_name="test-model",
+            temperature=0.0,
+            max_retries=3,
+            file_delay_seconds=1.0,
+            unps=["111"],
+        )
+        result = asyncio.run(distill_epfr_dividends(inp))
+        assert result == expected_stats
+
+    def test_preserves_unps_from_input(self, monkeypatch):
+        monkeypatch.setattr(
+            ai_distiller_workflow,
+            "resolve_ai_distiller_input",
+            lambda **kw: {
+                "output_dir": "/tmp",
+                "mapping_filename": "m.json",
+                "output_filename": "o.json",
+                "model_name": "m",
+                "temperature": 0.0,
+                "max_retries": 1,
+                "file_delay_seconds": 0.0,
+            },
+        )
+        captured_unps = []
+
+        async def fake_run(input_obj):
+            captured_unps.extend(input_obj.unps or [])
+            return {"output_path": "", "total_companies": 0, "total_files": 0, "successful": 0, "failed": 0}
+
+        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        inp = EpfrAiDistillerInput(
+            output_dir="/tmp",
+            unps=["AAA", "BBB"],
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+        asyncio.run(distill_epfr_dividends(inp))
+        assert captured_unps == ["AAA", "BBB"]
+
+    def test_returns_result_dict_from_run(self, monkeypatch):
+        expected = {"output_path": "/x", "total_companies": 5, "total_files": 10, "successful": 9, "failed": 1}
+        monkeypatch.setattr(
+            ai_distiller_workflow,
+            "resolve_ai_distiller_input",
+            lambda **kw: {
+                "output_dir": "/t",
+                "mapping_filename": "m",
+                "output_filename": "o",
+                "model_name": "m",
+                "temperature": 0.0,
+                "max_retries": 1,
+                "file_delay_seconds": 0.0,
+            },
+        )
+
+        async def fake_run(input_obj):
+            return expected
+
+        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        inp = EpfrAiDistillerInput(
+            output_dir="/t",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+        result = asyncio.run(distill_epfr_dividends(inp))
+        assert result is expected
+
+
+class TestEpfrAiDistillerWorkflow:
+    def _make_wf(self):
+        wf = EpfrAiDistillerWorkflow()
+        run_unwrapped = EpfrAiDistillerWorkflow.run.__wrapped__.__get__(wf, EpfrAiDistillerWorkflow)
+        return run_unwrapped
+
+    def test_run_constructs_output_from_stats(self, monkeypatch):
+        stats = {
+            "output_path": "/tmp/out.json",
+            "total_companies": 3,
+            "total_files": 10,
+            "successful": 8,
+            "failed": 2,
+            "extra_key": "extra_value",
+        }
+        monkeypatch.setattr(
+            ai_distiller_workflow,
+            "resolve_ai_distiller_input",
+            lambda **kw: {
+                "output_dir": "/t",
+                "mapping_filename": "m",
+                "output_filename": "o",
+                "model_name": "m",
+                "temperature": 0.0,
+                "max_retries": 1,
+                "file_delay_seconds": 0.0,
+            },
+        )
+
+        async def fake_run(input_obj):
+            return stats
+
+        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        inp = EpfrAiDistillerInput(
+            output_dir="/tmp",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+        run_method = self._make_wf()
+        result = asyncio.run(run_method(inp))
+        assert isinstance(result, EpfrAiDistillerOutput)
+        assert result.output_path == "/tmp/out.json"
+        assert result.total_companies == 3
+        assert result.total_files == 10
+        assert result.successful == 8
+        assert result.failed == 2
+        assert result.stats["extra_key"] == "extra_value"
+
+    def test_run_with_zero_results(self, monkeypatch):
+        stats = {"output_path": "", "total_companies": 0, "total_files": 0, "successful": 0, "failed": 0}
+        monkeypatch.setattr(
+            ai_distiller_workflow,
+            "resolve_ai_distiller_input",
+            lambda **kw: {
+                "output_dir": "/t",
+                "mapping_filename": "m",
+                "output_filename": "o",
+                "model_name": "m",
+                "temperature": 0.0,
+                "max_retries": 1,
+                "file_delay_seconds": 0.0,
+            },
+        )
+
+        async def fake_run(input_obj):
+            return stats
+
+        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        inp = EpfrAiDistillerInput(
+            output_dir="/tmp",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+        run_method = self._make_wf()
+        result = asyncio.run(run_method(inp))
+        assert result.total_companies == 0
+        assert result.total_files == 0
+
+    def test_run_handles_missing_stats_keys(self, monkeypatch):
+        monkeypatch.setattr(
+            ai_distiller_workflow,
+            "resolve_ai_distiller_input",
+            lambda **kw: {
+                "output_dir": "/t",
+                "mapping_filename": "m",
+                "output_filename": "o",
+                "model_name": "m",
+                "temperature": 0.0,
+                "max_retries": 1,
+                "file_delay_seconds": 0.0,
+            },
+        )
+
+        async def fake_run(input_obj):
+            return {}
+
+        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        inp = EpfrAiDistillerInput(
+            output_dir="/tmp",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+        run_method = self._make_wf()
+        result = asyncio.run(run_method(inp))
+        assert result.output_path == ""
+        assert result.total_companies == 0
