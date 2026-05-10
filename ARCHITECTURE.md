@@ -76,6 +76,7 @@ workflows/                              # Repository root
     │
     └── src/
         ├── discover.py                 # Auto-discovers workflow classes, starts Mistral worker
+        ├── tests/                      # Unit tests (13+ modules + fixtures/)
         └── workflows/
             ├── __init__.py             # Package marker (discovery entry point)
             ├── start.py                # CLI to trigger workflow execution via Mistral client
@@ -90,14 +91,13 @@ workflows/                              # Repository root
                 ├── markdown_cleanup.py # Token-heavy markdown artifact removal
                 ├── workflow.py         # epfr-files-downloader workflow (5 activities)
                 ├── pdf_ocr.py          # PDF OCR via Mistral plugin
-                ├── pdf_ocr_workflow.py # epfr-pdf-ocr-converter workflow
+                ├── pdf_ocr_workflow.py # epfr-pdf-ocr-converter workflow (3 activities)
                 ├── ai_distiller.py     # AI structured extraction logic
-                ├── ai_distiller_workflow.py  # epfr-ai-distiller workflow
+                ├── ai_distiller_workflow.py  # epfr-ai-distiller workflow (4 activities)
                 ├── share_payout_exporter.py  # CSV join + export logic
-                ├── share_payout_exporter_workflow.py  # epfr-share-payout-exporter workflow
-                ├── prompts/
-                │   └── dividends_parsing.md  # Prompt template for AI distillation
-                └── tests/              # Unit tests (7 modules)
+                ├── share_payout_exporter_workflow.py  # epfr-share-payout-exporter workflow (4 activities)
+                └── prompts/
+                    └── dividends_parsing.md  # Prompt template for AI distillation
 ```
 
 ### Where is X?
@@ -112,6 +112,7 @@ workflows/                              # Repository root
 | Share payout export workflow | `epfr-downloader/src/workflows/epfr/share_payout_exporter_workflow.py` |
 | API constants / tuning | `epfr-downloader/src/workflows/epfr/config.py` |
 | All Pydantic models | `epfr-downloader/src/workflows/epfr/models.py` |
+| Unit tests | `epfr-downloader/src/tests/` |
 | Ruff / ty configuration | `pyproject.toml` (root) |
 | Docker image definition | `epfr-downloader/Dockerfile` |
 | SQL generation script | `epfr-downloader/generate_sql.py` |
@@ -152,13 +153,16 @@ start.py → Mistral runtime → EpfrFilesDownloader.run()
 ### Downstream pipelines (invoked separately)
 
 ```
-epfr-pdf-ocr-converter:
+epfr-pdf-ocr-converter (3 activities):
+  scan_pdf_entries → process_pdf_ocr → finalize_ocr_mapping
   read unp_file_mapping.json → OCR each PDF via Mistral → update mapping to .md
 
-epfr-ai-distiller:
+epfr-ai-distiller (4 activities):
+  scan_ai_distiller_files → process_ai_distillation → finalize_ai_distillation + retry_failed
   read unp_file_mapping.json → Mistral Large structured extraction → ai_distilled_dividends.json
 
-epfr-share-payout-exporter:
+epfr-share-payout-exporter (4 activities):
+  scan_share_payout_export → process_share_payout_matching → finalize_share_payout_export + retry_failed
   read ai_distilled_dividends.json + shares_source_data.csv → share_payouts_by_unp.json
 ```
 
@@ -179,7 +183,7 @@ epfr.gov.by API → output/<UNP>/*.{pdf,docx,...}
                 → output/share_dividends_insert.sql (via generate_sql.py)
 ```
 
-All JSON outputs use atomic writes (`tempfile.mkstemp()` → `os.replace()`) (`Observed` in `workflow.py`, `pdf_ocr.py`, `ai_distiller.py`, `share_payout_exporter.py`).
+All JSON outputs use atomic writes (`tempfile.mkstemp()` → `os.replace()`) (`Observed` in `workflow.py`, `pdf_ocr_workflow.py`, `ai_distiller_workflow.py`, `share_payout_exporter_workflow.py`).
 
 ## 5. Architectural Invariants & Constraints
 
@@ -193,7 +197,7 @@ All JSON outputs use atomic writes (`tempfile.mkstemp()` → `os.replace()`) (`O
 
 - **Rule:** Output JSON writes must remain atomic using `tempfile.mkstemp()` → write → `os.replace()`.
   - **Rationale:** Prevents partially written artifacts on failures.
-  - **Enforcement / Signals (Observed):** Pattern used in `workflow.py`, `pdf_ocr.py`, `ai_distiller.py`, `share_payout_exporter.py`.
+  - **Enforcement / Signals (Observed):** Pattern used in all four workflow entry modules.
 
 - **Rule:** Use correct virtual environments — root `.venv` for tooling, `epfr-downloader/.venv` for runtime.
   - **Rationale:** Separate dependency sets (`ruff`/`ty` vs `mistralai-workflows`/runtime libs).
