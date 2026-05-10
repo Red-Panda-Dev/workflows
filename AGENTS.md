@@ -32,6 +32,7 @@ workflows/                          # Repository root
     ├── AGENTS.md                   # Project-local module map and change rules
     └── src/
         ├── discover.py             # Auto-discovers workflow classes, starts Mistral worker
+        ├── tests/                  # Unit tests (15 modules, see epfr-downloader/AGENTS.md)
         └── workflows/
             ├── start.py            # CLI trigger for workflow execution
             └── epfr/               # 4 workflows: download, OCR, AI-distill, share payout export
