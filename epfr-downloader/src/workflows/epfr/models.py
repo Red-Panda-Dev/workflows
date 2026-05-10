@@ -344,6 +344,179 @@ class EpfrAiDistillerOutput(BaseModel):
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
+# =============================================================================
+# AI Distiller Workflow Internal Models
+# These models support the 3-activity split for UI progress tracking
+# =============================================================================
+
+
+class AiDistillerWorkItem(BaseModel):
+    """Represents a single markdown file to be processed by AI distiller.
+
+    Used by the scan_ai_distiller_files activity to pass work items to the
+    process_ai_distillation activity.
+
+    Attributes:
+        unp: Company tax identifier (folder name).
+        company_title: Company name from the mapping.
+        holder_id: Holder ID from the mapping.
+        file_path: Full filesystem path to the markdown file.
+        filename: Original markdown filename.
+        original_name: Original name of the source file.
+        upload_date: Upload date from the mapping.
+        file_id: File ID from the mapping.
+        extracted_from: Archive filename if extracted, None otherwise.
+        converted_from: Source filename if converted, None otherwise.
+    """
+
+    unp: str
+    company_title: str
+    holder_id: int
+    file_path: str
+    filename: str
+    original_name: str
+    upload_date: str
+    file_id: int
+    extracted_from: str | None = None
+    converted_from: str | None = None
+
+
+class AiDistillerScanResult(BaseModel):
+    """Result of scanning the mapping for markdown files to distill.
+
+    Output of the scan_ai_distiller_files activity and input to process_ai_distillation.
+
+    Attributes:
+        mapping_path: Absolute path to the mapping JSON file.
+        total_companies: Number of companies in the mapping.
+        total_files: Total count of markdown files found.
+        work_items: List of markdown files that need AI distillation.
+        output_dir: Resolved output directory path.
+        output_filename: Resolved output filename.
+        model_name: Resolved Mistral model name.
+        temperature: Resolved model temperature.
+        max_retries: Resolved maximum retry attempts.
+        file_delay_seconds: Resolved delay between file processing.
+    """
+
+    mapping_path: str
+    total_companies: int
+    total_files: int
+    work_items: list[AiDistillerWorkItem]
+    output_dir: str
+    output_filename: str
+    model_name: str
+    temperature: float
+    max_retries: int
+    file_delay_seconds: float
+
+
+class AiDistillerFileResult(BaseModel):
+    """Result of AI distilling a single markdown file.
+
+    Captures the outcome of processing one markdown file through AI extraction.
+
+    Attributes:
+        unp: Company tax identifier.
+        filename: Original markdown filename.
+        status: Processing result - SUCCESS or FAILED.
+        has_dividends: Whether the AI found dividends in the file.
+        ai_comment: AI-generated commentary about the extraction.
+        dividends: List of extracted dividend entries (serialized dicts).
+        autofilled_fields: List of fields that were auto-filled during normalization.
+        error: Error message if status is FAILED.
+        file_id: File ID from the original mapping.
+    """
+
+    unp: str
+    filename: str
+    status: Literal["SUCCESS", "FAILED"]
+    has_dividends: bool
+    ai_comment: str
+    dividends: list[dict[str, Any]]
+    autofilled_fields: list[str]
+    error: str | None = None
+    file_id: int
+
+
+class AiDistillerProcessResult(BaseModel):
+    """Result of the AI distillation processing phase.
+
+    Output of the process_ai_distillation activity and input to finalize_ai_distillation.
+
+    Attributes:
+        results: Dict of file results keyed by UNP.
+        total_files: Total number of files processed.
+        successful: Count of successfully processed files.
+        failed: Count of failed files.
+        failed_files: List of paths to failed files.
+        total_companies: Number of companies processed.
+    """
+
+    results: dict[str, AiDistillerFileResult]  # keyed by unp
+    total_files: int
+    successful: int
+    failed: int
+    failed_files: list[str]
+    total_companies: int
+
+
+# =============================================================================
+# Share Payout Exporter Workflow Internal Models
+# These models support the 3-activity split for UI progress tracking
+# =============================================================================
+
+
+class SharePayoutScanResult(BaseModel):
+    """Result of scanning CSV and distilled JSON for payout export.
+
+    Output of the scan_share_payout_export activity and input to process_share_payout_matching.
+
+    Attributes:
+        csv_path: Absolute path to the shares CSV file.
+        csv_index: Mapping of (unp, share_kind) to instrument_uuid.
+        csv_stats: Statistics from CSV loading (ambiguous keys, known UNPs).
+        distilled_path: Absolute path to the distilled JSON file.
+        distilled_data: Full distilled data dictionary.
+        output_dir: Resolved output directory path.
+        output_filename: Resolved output filename.
+    """
+
+    csv_path: str
+    csv_index: dict[str, str]  # unp|share_kind -> instrument_uuid (serializable)
+    csv_stats: dict[str, Any]  # ambiguous_share_kind, known_unps, ambiguous_keys (as set of strings)
+    distilled_path: str
+    distilled_data: dict[str, Any]
+    output_dir: str
+    output_filename: str
+
+
+class SharePayoutProcessResult(BaseModel):
+    """Result of matching dividends against share reference.
+
+    Output of the process_share_payout_matching activity and input to finalize_share_payout_export.
+
+    Attributes:
+        export_data: Dict of payout rows keyed by UNP.
+        matched_count: Number of successfully matched payouts.
+        skipped_file_errors: Number of files skipped due to errors.
+        autofilled_share_type: Number of dividends with autofilled share_type.
+        missing_csv_unp: Number of UNPs not in CSV.
+        missing_share_kind: Number of share_kinds not in CSV.
+        ambiguous_share_kind: Number of ambiguous (unp, share_kind) combinations.
+        samples: Sample data for debugging unmatched cases.
+    """
+
+    export_data: dict[str, list[dict]]  # unp -> list of payout rows
+    matched_count: int
+    skipped_file_errors: int
+    autofilled_share_type: int
+    missing_csv_unp: int
+    missing_share_kind: int
+    ambiguous_share_kind: int
+    samples: dict[str, list[dict]]
+
+
 class EpfrSharePayoutExportRow(BaseModel):
     """A payout row model for the DB-ready export.
 

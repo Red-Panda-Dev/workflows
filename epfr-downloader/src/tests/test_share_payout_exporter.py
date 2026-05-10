@@ -14,7 +14,9 @@ import pytest
 from workflows.epfr import config
 from workflows.epfr.models import EpfrSharePayoutExportInput
 from workflows.epfr.share_payout_exporter import load_share_reference_index, run_share_payout_export
-from workflows.epfr.share_payout_exporter_workflow import EpfrSharePayoutExporterWorkflow, export_share_payouts
+from workflows.epfr.share_payout_exporter_workflow import (
+    EpfrSharePayoutExporterWorkflow,
+)
 
 
 class TestExportConfigDefaults:
@@ -47,7 +49,7 @@ class TestLoadShareReferenceIndex:
             encoding="utf-8",
         )
         index, stats = load_share_reference_index(csv_path)
-        assert index[("600073968", "common")] == "uuid-common-1"
+        assert index["600073968|common"] == "uuid-common-1"
         assert stats["ambiguous_share_kind"] == 0
 
     def test_unp_with_common_and_preferred(self, tmp_path):
@@ -60,8 +62,8 @@ class TestLoadShareReferenceIndex:
             encoding="utf-8",
         )
         index, stats = load_share_reference_index(csv_path)
-        assert index[("600073968", "common")] == "uuid-common-1"
-        assert index[("600073968", "preferred")] == "uuid-pref-1"
+        assert index["600073968|common"] == "uuid-common-1"
+        assert index["600073968|preferred"] == "uuid-pref-1"
         assert stats["ambiguous_share_kind"] == 0
 
     def test_ambiguous_preferred_skipped(self, tmp_path):
@@ -74,7 +76,7 @@ class TestLoadShareReferenceIndex:
             encoding="utf-8",
         )
         index, stats = load_share_reference_index(csv_path)
-        assert ("100325912", "preferred") not in index
+        assert "100325912|preferred" not in index
         assert stats["ambiguous_share_kind"] == 2
 
     def test_ambiguous_common_plus_preferred_with_duplicate(self, tmp_path):
@@ -88,8 +90,8 @@ class TestLoadShareReferenceIndex:
             encoding="utf-8",
         )
         index, stats = load_share_reference_index(csv_path)
-        assert index[("100325912", "common")] == "uuid-common-1"
-        assert ("100325912", "preferred") not in index
+        assert index["100325912|common"] == "uuid-common-1"
+        assert "100325912|preferred" not in index
         assert stats["ambiguous_share_kind"] == 2
 
     def test_empty_csv(self, tmp_path):
@@ -417,7 +419,7 @@ class TestRunSharePayoutExport:
         )
         with patch("workflows.epfr.share_payout_exporter.load_share_reference_index") as mock_load:
             mock_load.return_value = (
-                {("600073968", "common"): "uuid-common-1"},
+                {"600073968|common": "uuid-common-1"},
                 {"known_unps": {"600073968"}, "ambiguous_keys": set(), "ambiguous_share_kind": 0},
             )
             stats = run_share_payout_export(inp)
@@ -698,132 +700,220 @@ class TestRealFixtureEdgeCases:
         assert stats["autofilled_share_type"] >= 1
 
 
-class TestExportSharePayoutsActivity:
-    """Tests for the export_share_payouts activity wrapper."""
-
-    @pytest.mark.anyio
-    async def test_happy_path_with_fixture(self, tmp_path, load_epfr_fixture_json):
-        """Activity resolves input and delegates to run_share_payout_export."""
-        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
-        inp = _setup_real_fixture_export(tmp_path, distilled)
-
-        result = await export_share_payouts(inp)
-
-        assert result["matched_payouts"] > 0
-        assert (tmp_path / "share_payouts_by_unp.json").exists()
-
-    @pytest.mark.anyio
-    async def test_preserves_shares_csv_path(self, tmp_path, load_epfr_fixture_json):
-        """Activity passes shares_csv_path through even after resolving other fields."""
-        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
-        inp = _setup_real_fixture_export(tmp_path, distilled)
-        custom_csv = str(config.get_shares_source_data_csv())
-        inp = EpfrSharePayoutExportInput(
-            output_dir=inp.output_dir,
-            input_filename=inp.input_filename,
-            output_filename=inp.output_filename,
-            shares_csv_path=custom_csv,
-        )
-
-        with patch(
-            "workflows.epfr.share_payout_exporter_workflow.run_share_payout_export",
-            return_value={
-                "matched_payouts": 1,
-                "unmatched_payouts": 0,
-                "total_companies_exported": 1,
-                "output_path": "/tmp/x",
-            },
-        ) as mock_run:
-            await export_share_payouts(inp)
-
-        passed_input = mock_run.call_args[0][0]
-        assert passed_input.shares_csv_path == custom_csv
-
-    @pytest.mark.anyio
-    async def test_resolves_none_fields_from_config(self, tmp_path, load_epfr_fixture_json):
-        """Activity calls resolve_share_payout_export_input for None fields."""
-        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
-        inp = _setup_real_fixture_export(tmp_path, distilled)
-        inp = EpfrSharePayoutExportInput(
-            output_dir=None,
-            input_filename=None,
-            output_filename=None,
-            shares_csv_path=inp.shares_csv_path,
-        )
-
-        with patch(
-            "workflows.epfr.share_payout_exporter_workflow.run_share_payout_export",
-            return_value={
-                "matched_payouts": 0,
-                "unmatched_payouts": 0,
-                "total_companies_exported": 0,
-                "output_path": "",
-            },
-        ) as mock_run:
-            await export_share_payouts(inp)
-
-        passed_input = mock_run.call_args[0][0]
-        assert passed_input.output_dir is not None
-        assert passed_input.input_filename is not None
-        assert passed_input.output_filename is not None
-
-
 class TestEpfrSharePayoutExporterWorkflowRun:
     """Tests for EpfrSharePayoutExporterWorkflow.run entrypoint."""
 
+    def _make_wf(self):
+        wf = EpfrSharePayoutExporterWorkflow()
+        run_unwrapped = EpfrSharePayoutExporterWorkflow.run.__wrapped__.__get__(wf, EpfrSharePayoutExporterWorkflow)
+        return run_unwrapped
+
     @pytest.mark.anyio
-    async def test_returns_dict_with_expected_keys(self):
-        """run() returns a dict with all EpfrSharePayoutExportOutput fields."""
+    async def test_returns_output_with_expected_fields(self, tmp_path, load_epfr_fixture_json):
+        """run() returns EpfrSharePayoutExportOutput with all expected fields."""
+        from workflows.epfr.models import (
+            EpfrSharePayoutExportOutput,
+            SharePayoutProcessResult,
+            SharePayoutScanResult,
+        )
+
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+
+        fake_scan = SharePayoutScanResult(
+            csv_path=str(inp.shares_csv_path),
+            csv_index={},
+            csv_stats={"ambiguous_share_kind": 0, "known_unps": set(), "ambiguous_keys": set()},
+            distilled_path=str(tmp_path / inp.input_filename),
+            distilled_data=distilled,
+            output_dir=inp.output_dir,
+            output_filename=inp.output_filename,
+        )
+        fake_process = SharePayoutProcessResult(
+            export_data={},
+            matched_count=5,
+            skipped_file_errors=0,
+            autofilled_share_type=0,
+            missing_csv_unp=0,
+            missing_share_kind=0,
+            ambiguous_share_kind=0,
+            samples={},
+        )
         fake_stats = {
             "output_path": "/tmp/out.json",
             "matched_payouts": 5,
             "unmatched_payouts": 3,
             "total_companies_exported": 2,
         }
-        with patch("workflows.epfr.share_payout_exporter_workflow.export_share_payouts", return_value=fake_stats):
-            wf = EpfrSharePayoutExporterWorkflow()
-            result = await wf.run(EpfrSharePayoutExportInput())
 
-        assert isinstance(result, dict)
-        assert "output_path" in result
-        assert "total_companies" in result
-        assert "total_payouts" in result
-        assert "matched_payouts" in result
-        assert "unmatched_payouts" in result
-        assert "stats" in result
+        async def mock_scan(input_obj):
+            return fake_scan
+
+        async def mock_process(scan_result):
+            return fake_process
+
+        async def mock_finalize(scan_result, process_result):
+            return fake_stats
+
+        with patch.multiple(
+            "workflows.epfr.share_payout_exporter_workflow",
+            scan_share_payout_export=mock_scan,
+            process_share_payout_matching=mock_process,
+            finalize_share_payout_export=mock_finalize,
+        ):
+            run_method = self._make_wf()
+            result = await run_method(inp)
+
+        assert isinstance(result, EpfrSharePayoutExportOutput)
+        assert result.output_path == "/tmp/out.json"
+        assert result.total_companies == 2
+        assert result.total_payouts == 8
+        assert result.matched_payouts == 5
+        assert result.unmatched_payouts == 3
+        assert result.stats == fake_stats
 
     @pytest.mark.anyio
-    async def test_total_payouts_is_sum(self):
+    async def test_total_payouts_is_sum(self, tmp_path, load_epfr_fixture_json):
         """total_payouts equals matched_payouts + unmatched_payouts."""
+        from workflows.epfr.models import (
+            SharePayoutProcessResult,
+            SharePayoutScanResult,
+        )
+
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+
+        fake_scan = SharePayoutScanResult(
+            csv_path=str(inp.shares_csv_path),
+            csv_index={},
+            csv_stats={"ambiguous_share_kind": 0, "known_unps": set(), "ambiguous_keys": set()},
+            distilled_path=str(tmp_path / inp.input_filename),
+            distilled_data=distilled,
+            output_dir=inp.output_dir,
+            output_filename=inp.output_filename,
+        )
+        fake_process = SharePayoutProcessResult(
+            export_data={},
+            matched_count=7,
+            skipped_file_errors=0,
+            autofilled_share_type=0,
+            missing_csv_unp=0,
+            missing_share_kind=0,
+            ambiguous_share_kind=0,
+            samples={},
+        )
         fake_stats = {
             "output_path": "/tmp/out.json",
             "matched_payouts": 7,
             "unmatched_payouts": 4,
             "total_companies_exported": 3,
         }
-        with patch("workflows.epfr.share_payout_exporter_workflow.export_share_payouts", return_value=fake_stats):
-            wf = EpfrSharePayoutExporterWorkflow()
-            result = await wf.run(EpfrSharePayoutExportInput())
 
-        assert result["total_payouts"] == 11
-        assert result["matched_payouts"] == 7
-        assert result["unmatched_payouts"] == 4
+        async def mock_scan(input_obj):
+            return fake_scan
+
+        async def mock_process(scan_result):
+            return fake_process
+
+        async def mock_finalize(scan_result, process_result):
+            return fake_stats
+
+        with patch.multiple(
+            "workflows.epfr.share_payout_exporter_workflow",
+            scan_share_payout_export=mock_scan,
+            process_share_payout_matching=mock_process,
+            finalize_share_payout_export=mock_finalize,
+        ):
+            run_method = self._make_wf()
+            result = await run_method(inp)
+
+        assert result.total_payouts == 11
+        assert result.matched_payouts == 7
+        assert result.unmatched_payouts == 4
 
     @pytest.mark.anyio
-    async def test_handles_empty_stats(self):
+    async def test_handles_empty_stats(self, tmp_path, load_epfr_fixture_json):
         """run() handles missing keys gracefully via .get() defaults."""
-        fake_stats = {}
-        with patch("workflows.epfr.share_payout_exporter_workflow.export_share_payouts", return_value=fake_stats):
-            wf = EpfrSharePayoutExporterWorkflow()
-            result = await wf.run(EpfrSharePayoutExportInput())
+        from workflows.epfr.models import (
+            SharePayoutProcessResult,
+            SharePayoutScanResult,
+        )
 
-        assert result["total_payouts"] == 0
-        assert result["total_companies"] == 0
-        assert result["output_path"] == ""
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+
+        fake_scan = SharePayoutScanResult(
+            csv_path=str(inp.shares_csv_path),
+            csv_index={},
+            csv_stats={"ambiguous_share_kind": 0, "known_unps": set(), "ambiguous_keys": set()},
+            distilled_path=str(tmp_path / inp.input_filename),
+            distilled_data=distilled,
+            output_dir=inp.output_dir,
+            output_filename=inp.output_filename,
+        )
+        fake_process = SharePayoutProcessResult(
+            export_data={},
+            matched_count=0,
+            skipped_file_errors=0,
+            autofilled_share_type=0,
+            missing_csv_unp=0,
+            missing_share_kind=0,
+            ambiguous_share_kind=0,
+            samples={},
+        )
+        fake_stats = {}
+
+        async def mock_scan(input_obj):
+            return fake_scan
+
+        async def mock_process(scan_result):
+            return fake_process
+
+        async def mock_finalize(scan_result, process_result):
+            return fake_stats
+
+        with patch.multiple(
+            "workflows.epfr.share_payout_exporter_workflow",
+            scan_share_payout_export=mock_scan,
+            process_share_payout_matching=mock_process,
+            finalize_share_payout_export=mock_finalize,
+        ):
+            run_method = self._make_wf()
+            result = await run_method(inp)
+
+        assert result.total_payouts == 0
 
     @pytest.mark.anyio
-    async def test_stats_dict_attached(self):
+    async def test_stats_dict_attached(self, tmp_path, load_epfr_fixture_json):
         """The raw stats dict is preserved in the output."""
+        from workflows.epfr.models import (
+            EpfrSharePayoutExportOutput,
+            SharePayoutProcessResult,
+            SharePayoutScanResult,
+        )
+
+        distilled = load_epfr_fixture_json("ai_distilled_dividends.json")
+        inp = _setup_real_fixture_export(tmp_path, distilled)
+
+        fake_scan = SharePayoutScanResult(
+            csv_path=str(inp.shares_csv_path),
+            csv_index={},
+            csv_stats={"ambiguous_share_kind": 0, "known_unps": set(), "ambiguous_keys": set()},
+            distilled_path=str(tmp_path / inp.input_filename),
+            distilled_data=distilled,
+            output_dir=inp.output_dir,
+            output_filename=inp.output_filename,
+        )
+        fake_process = SharePayoutProcessResult(
+            export_data={},
+            matched_count=2,
+            skipped_file_errors=0,
+            autofilled_share_type=0,
+            missing_csv_unp=0,
+            missing_share_kind=0,
+            ambiguous_share_kind=0,
+            samples={},
+        )
         fake_stats = {
             "output_path": "/tmp/out.json",
             "matched_payouts": 2,
@@ -831,9 +921,25 @@ class TestEpfrSharePayoutExporterWorkflowRun:
             "total_companies_exported": 1,
             "extra_key": "extra_value",
         }
-        with patch("workflows.epfr.share_payout_exporter_workflow.export_share_payouts", return_value=fake_stats):
-            wf = EpfrSharePayoutExporterWorkflow()
-            result = await wf.run(EpfrSharePayoutExportInput())
 
-        assert result["stats"] == fake_stats
-        assert result["stats"]["extra_key"] == "extra_value"
+        async def mock_scan(input_obj):
+            return fake_scan
+
+        async def mock_process(scan_result):
+            return fake_process
+
+        async def mock_finalize(scan_result, process_result):
+            return fake_stats
+
+        with patch.multiple(
+            "workflows.epfr.share_payout_exporter_workflow",
+            scan_share_payout_export=mock_scan,
+            process_share_payout_matching=mock_process,
+            finalize_share_payout_export=mock_finalize,
+        ):
+            run_method = self._make_wf()
+            result = await run_method(inp)
+
+        assert isinstance(result, EpfrSharePayoutExportOutput)
+        assert result.stats == fake_stats
+        assert result.stats["extra_key"] == "extra_value"

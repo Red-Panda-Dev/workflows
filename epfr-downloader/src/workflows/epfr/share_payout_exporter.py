@@ -13,11 +13,25 @@ from .config import get_shares_source_data_csv
 from .models import EpfrSharePayoutExportInput, EpfrSharePayoutExportRow
 
 
-def load_share_reference_index(csv_path: Path) -> tuple[dict[tuple[str, str], str], dict[str, Any]]:
+def _make_csv_key(unp: str, share_kind: str) -> str:
+    """Create a serializable string key from unp and share_kind using pipe delimiter."""
+    return f"{unp}|{share_kind}"
+
+
+def _parse_csv_key(key: str) -> tuple[str, str]:
+    """Parse a CSV key string back into (unp, share_kind) tuple."""
+    return tuple(key.split("|", 1))
+
+
+def load_share_reference_index(csv_path: Path) -> tuple[dict[str, str], dict[str, Any]]:
     """Load shares_source_data.csv and build a UNP+share_kind -> instrument_uuid index.
 
     Rows where (unp, share_kind) is ambiguous (appears in multiple CSV rows) are
     excluded from the index and counted in stats.
+
+    Returns:
+        Tuple of (index dict with string keys "unp|share_kind", stats dict).
+        Stats contain ambiguous_keys as a set of strings "unp|share_kind".
     """
     rows: list[dict[str, str]] = []
     with csv_path.open(newline="", encoding="utf-8") as f:
@@ -25,16 +39,16 @@ def load_share_reference_index(csv_path: Path) -> tuple[dict[tuple[str, str], st
         for row in reader:
             rows.append(row)
 
-    key_counts: Counter[tuple[str, str]] = Counter()
-    key_to_uuid: dict[tuple[str, str], str] = {}
+    key_counts: Counter[str] = Counter()
+    key_to_uuid: dict[str, str] = {}
     for row in rows:
-        key = (row["unp"], row["share_kind"])
+        key = _make_csv_key(row["unp"], row["share_kind"])
         key_counts[key] += 1
         key_to_uuid[key] = row["instrument_uuid"]
 
     ambiguous_count = 0
-    ambiguous_keys: set[tuple[str, str]] = set()
-    index: dict[tuple[str, str], str] = {}
+    ambiguous_keys: set[str] = set()
+    index: dict[str, str] = {}
     for key, count in key_counts.items():
         if count > 1:
             ambiguous_count += count
@@ -70,7 +84,7 @@ def run_share_payout_export(input: EpfrSharePayoutExportInput) -> dict[str, Any]
     samples_file_errors: list[dict] = []
 
     known_unps: set[str] = csv_stats["known_unps"]
-    ambiguous_keys: set[tuple[str, str]] = csv_stats["ambiguous_keys"]
+    ambiguous_keys: set[str] = csv_stats["ambiguous_keys"]
 
     for unp_str, company_data in distilled_data.items():
         payouts: list[dict] = []
@@ -100,7 +114,7 @@ def run_share_payout_export(input: EpfrSharePayoutExportInput) -> dict[str, Any]
                         samples_autofilled.append({"unp": unp_str, "share_type": share_type, "file_id": file_id})
                     continue
 
-                key = (unp_str, share_type)
+                key = _make_csv_key(unp_str, share_type)
                 if key not in index:
                     if key in ambiguous_keys:
                         ambiguous_share_kind += 1

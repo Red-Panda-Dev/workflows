@@ -25,7 +25,9 @@ from workflows.epfr.ai_distiller import (
     _validate_and_correct_dates,
     normalize_and_fill_dividend,
 )
-from workflows.epfr.ai_distiller_workflow import EpfrAiDistillerWorkflow, distill_epfr_dividends
+from workflows.epfr.ai_distiller_workflow import (
+    EpfrAiDistillerWorkflow,
+)
 from workflows.epfr.models import EpfrAiDistillerInput, EpfrAiDistillerOutput, EpfrDividendEntry
 
 
@@ -1671,143 +1673,67 @@ class TestRunAiDistillationIntegration:
 # ==================== Phase 6: Workflow Wrapper Tests ====================
 
 
-class TestDistillEpfrDividendsActivity:
-    def test_resolves_config_and_calls_distillation(self, monkeypatch):
-        resolved_config = {
-            "output_dir": "/tmp/out",
-            "mapping_filename": "mapping.json",
-            "output_filename": "distilled.json",
-            "model_name": "test-model",
-            "temperature": 0.0,
-            "max_retries": 3,
-            "file_delay_seconds": 1.0,
-        }
-        expected_stats = {
-            "output_path": "/tmp/out/distilled.json",
-            "total_companies": 1,
-            "total_files": 2,
-            "successful": 2,
-            "failed": 0,
-        }
-        monkeypatch.setattr(ai_distiller_workflow, "resolve_ai_distiller_input", lambda **kw: resolved_config)
-
-        async def fake_run(input_obj):
-            assert input_obj.output_dir == "/tmp/out"
-            assert input_obj.unps == ["111"]
-            return expected_stats
-
-        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
-        inp = EpfrAiDistillerInput(
-            output_dir="/tmp/out",
-            mapping_filename="mapping.json",
-            output_filename="distilled.json",
-            model_name="test-model",
-            temperature=0.0,
-            max_retries=3,
-            file_delay_seconds=1.0,
-            unps=["111"],
-        )
-        result = asyncio.run(distill_epfr_dividends(inp))
-        assert result == expected_stats
-
-    def test_preserves_unps_from_input(self, monkeypatch):
-        monkeypatch.setattr(
-            ai_distiller_workflow,
-            "resolve_ai_distiller_input",
-            lambda **kw: {
-                "output_dir": "/tmp",
-                "mapping_filename": "m.json",
-                "output_filename": "o.json",
-                "model_name": "m",
-                "temperature": 0.0,
-                "max_retries": 1,
-                "file_delay_seconds": 0.0,
-            },
-        )
-        captured_unps = []
-
-        async def fake_run(input_obj):
-            captured_unps.extend(input_obj.unps or [])
-            return {"output_path": "", "total_companies": 0, "total_files": 0, "successful": 0, "failed": 0}
-
-        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
-        inp = EpfrAiDistillerInput(
-            output_dir="/tmp",
-            unps=["AAA", "BBB"],
-            model_name="m",
-            temperature=0.0,
-            max_retries=1,
-            file_delay_seconds=0.0,
-        )
-        asyncio.run(distill_epfr_dividends(inp))
-        assert captured_unps == ["AAA", "BBB"]
-
-    def test_returns_result_dict_from_run(self, monkeypatch):
-        expected = {"output_path": "/x", "total_companies": 5, "total_files": 10, "successful": 9, "failed": 1}
-        monkeypatch.setattr(
-            ai_distiller_workflow,
-            "resolve_ai_distiller_input",
-            lambda **kw: {
-                "output_dir": "/t",
-                "mapping_filename": "m",
-                "output_filename": "o",
-                "model_name": "m",
-                "temperature": 0.0,
-                "max_retries": 1,
-                "file_delay_seconds": 0.0,
-            },
-        )
-
-        async def fake_run(input_obj):
-            return expected
-
-        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
-        inp = EpfrAiDistillerInput(
-            output_dir="/t",
-            model_name="m",
-            temperature=0.0,
-            max_retries=1,
-            file_delay_seconds=0.0,
-        )
-        result = asyncio.run(distill_epfr_dividends(inp))
-        assert result is expected
-
-
 class TestEpfrAiDistillerWorkflow:
     def _make_wf(self):
         wf = EpfrAiDistillerWorkflow()
         run_unwrapped = EpfrAiDistillerWorkflow.run.__wrapped__.__get__(wf, EpfrAiDistillerWorkflow)
         return run_unwrapped
 
-    def test_run_constructs_output_from_stats(self, monkeypatch):
+    def test_run_constructs_output_from_stats(self, monkeypatch, tmp_path):
+        """Test workflow run constructs output from activity results."""
+        from workflows.epfr.models import AiDistillerScanResult, AiDistillerProcessResult
+
+        # Create a minimal mapping file
+        mapping_path = tmp_path / "mapping.json"
+        mapping_path.write_text('{"123": {"title": "Test", "holder_id": 1, "files": []}}')
+
+        scan_result = AiDistillerScanResult(
+            mapping_path=str(mapping_path),
+            total_companies=3,
+            total_files=10,
+            work_items=[],
+            output_dir=str(tmp_path),
+            output_filename="o.json",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+
+        process_result = AiDistillerProcessResult(
+            results={},
+            total_files=10,
+            successful=8,
+            failed=2,
+            failed_files=[],
+            total_companies=3,
+        )
+
         stats = {
-            "output_path": "/tmp/out.json",
+            "output_path": str(tmp_path / "o.json"),
             "total_companies": 3,
             "total_files": 10,
             "successful": 8,
             "failed": 2,
             "extra_key": "extra_value",
         }
-        monkeypatch.setattr(
-            ai_distiller_workflow,
-            "resolve_ai_distiller_input",
-            lambda **kw: {
-                "output_dir": "/t",
-                "mapping_filename": "m",
-                "output_filename": "o",
-                "model_name": "m",
-                "temperature": 0.0,
-                "max_retries": 1,
-                "file_delay_seconds": 0.0,
-            },
-        )
 
-        async def fake_run(input_obj):
+        async def fake_scan(input_obj):
+            return scan_result
+
+        async def fake_process(scan_result):
+            return process_result
+
+        async def fake_finalize(scan_result, process_result):
             return stats
 
-        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        monkeypatch.setattr(ai_distiller_workflow, "scan_ai_distiller_files", fake_scan)
+        monkeypatch.setattr(ai_distiller_workflow, "process_ai_distillation", fake_process)
+        monkeypatch.setattr(ai_distiller_workflow, "finalize_ai_distillation", fake_finalize)
+
         inp = EpfrAiDistillerInput(
-            output_dir="/tmp",
+            output_dir=str(tmp_path),
+            mapping_filename="mapping.json",
             model_name="m",
             temperature=0.0,
             max_retries=1,
@@ -1816,35 +1742,42 @@ class TestEpfrAiDistillerWorkflow:
         run_method = self._make_wf()
         result = asyncio.run(run_method(inp))
         assert isinstance(result, EpfrAiDistillerOutput)
-        assert result.output_path == "/tmp/out.json"
+        assert result.output_path == str(tmp_path / "o.json")
         assert result.total_companies == 3
         assert result.total_files == 10
         assert result.successful == 8
         assert result.failed == 2
         assert result.stats["extra_key"] == "extra_value"
 
-    def test_run_with_zero_results(self, monkeypatch):
-        stats = {"output_path": "", "total_companies": 0, "total_files": 0, "successful": 0, "failed": 0}
-        monkeypatch.setattr(
-            ai_distiller_workflow,
-            "resolve_ai_distiller_input",
-            lambda **kw: {
-                "output_dir": "/t",
-                "mapping_filename": "m",
-                "output_filename": "o",
-                "model_name": "m",
-                "temperature": 0.0,
-                "max_retries": 1,
-                "file_delay_seconds": 0.0,
-            },
+    def test_run_with_zero_results(self, monkeypatch, tmp_path):
+        """Test workflow run with zero files found."""
+        from workflows.epfr.models import AiDistillerScanResult
+
+        # Create a minimal mapping file
+        mapping_path = tmp_path / "mapping.json"
+        mapping_path.write_text('{"123": {"title": "Test", "holder_id": 1, "files": []}}')
+
+        scan_result = AiDistillerScanResult(
+            mapping_path=str(mapping_path),
+            total_companies=0,
+            total_files=0,
+            work_items=[],
+            output_dir=str(tmp_path),
+            output_filename="o.json",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
         )
 
-        async def fake_run(input_obj):
-            return stats
+        async def fake_scan(input_obj):
+            return scan_result
 
-        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        monkeypatch.setattr(ai_distiller_workflow, "scan_ai_distiller_files", fake_scan)
+
         inp = EpfrAiDistillerInput(
-            output_dir="/tmp",
+            output_dir=str(tmp_path),
+            mapping_filename="mapping.json",
             model_name="m",
             temperature=0.0,
             max_retries=1,
@@ -1855,27 +1788,52 @@ class TestEpfrAiDistillerWorkflow:
         assert result.total_companies == 0
         assert result.total_files == 0
 
-    def test_run_handles_missing_stats_keys(self, monkeypatch):
-        monkeypatch.setattr(
-            ai_distiller_workflow,
-            "resolve_ai_distiller_input",
-            lambda **kw: {
-                "output_dir": "/t",
-                "mapping_filename": "m",
-                "output_filename": "o",
-                "model_name": "m",
-                "temperature": 0.0,
-                "max_retries": 1,
-                "file_delay_seconds": 0.0,
-            },
+    def test_run_handles_missing_stats_keys(self, monkeypatch, tmp_path):
+        """Test workflow run handles missing stats keys."""
+        from workflows.epfr.models import AiDistillerScanResult, AiDistillerProcessResult
+
+        # Create a minimal mapping file
+        mapping_path = tmp_path / "mapping.json"
+        mapping_path.write_text('{"123": {"title": "Test", "holder_id": 1, "files": []}}')
+
+        scan_result = AiDistillerScanResult(
+            mapping_path=str(mapping_path),
+            total_companies=0,
+            total_files=0,
+            work_items=[],
+            output_dir=str(tmp_path),
+            output_filename="o.json",
+            model_name="m",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
         )
 
-        async def fake_run(input_obj):
+        process_result = AiDistillerProcessResult(
+            results={},
+            total_files=0,
+            successful=0,
+            failed=0,
+            failed_files=[],
+            total_companies=0,
+        )
+
+        async def fake_scan(input_obj):
+            return scan_result
+
+        async def fake_process(scan_result):
+            return process_result
+
+        async def fake_finalize(scan_result, process_result):
             return {}
 
-        monkeypatch.setattr(ai_distiller_workflow, "run_ai_distillation", fake_run)
+        monkeypatch.setattr(ai_distiller_workflow, "scan_ai_distiller_files", fake_scan)
+        monkeypatch.setattr(ai_distiller_workflow, "process_ai_distillation", fake_process)
+        monkeypatch.setattr(ai_distiller_workflow, "finalize_ai_distillation", fake_finalize)
+
         inp = EpfrAiDistillerInput(
-            output_dir="/tmp",
+            output_dir=str(tmp_path),
+            mapping_filename="mapping.json",
             model_name="m",
             temperature=0.0,
             max_retries=1,
@@ -1883,5 +1841,6 @@ class TestEpfrAiDistillerWorkflow:
         )
         run_method = self._make_wf()
         result = asyncio.run(run_method(inp))
-        assert result.output_path == ""
+        # When finalize returns empty dict, output_path comes from scan_result
+        assert result.output_path == str(tmp_path / "o.json")
         assert result.total_companies == 0
