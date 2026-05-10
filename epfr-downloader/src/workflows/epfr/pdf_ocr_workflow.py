@@ -29,7 +29,11 @@ async def ocr_epfr_mapping_pdfs(input: EpfrPdfOcrInput) -> dict:
         f"mapping_filename={input.mapping_filename}, overwrite={input.overwrite}, "
         f"cleanup_source={input.cleanup_source}, unps={input.unps}"
     )
-    resolved = resolve_pdf_ocr_input(**input.model_dump(exclude_none=True))
+    resolved = resolve_pdf_ocr_input(
+        output_dir=input.output_dir,
+        mapping_filename=input.mapping_filename,
+        cleanup_source=input.cleanup_source,
+    )
     output_root = Path(resolved["output_dir"])
     output_root.mkdir(parents=True, exist_ok=True)
 
