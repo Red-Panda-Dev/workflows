@@ -288,11 +288,32 @@ async def process_pdf_ocr(
         if not tasks:
             continue
 
-        raw_results = await asyncio.gather(*tasks)
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for (idx_in_list, file_idx), (_, result_file_idx, status, updated_entry, source_path, err) in zip(
-            item_indexes, raw_results, strict=True
-        ):
+        for (idx_in_list, file_idx), result in zip(item_indexes, raw_results, strict=True):
+            if isinstance(result, BaseException):
+                total_failed += 1
+                orig_filename = items[idx_in_list][1].filename
+                source_path = items[idx_in_list][1].file_path
+                results.append(
+                    PdfOcrFileResult(
+                        unp=unp,
+                        file_index=file_idx,
+                        status="FAILED",
+                        original_filename=orig_filename,
+                        new_filename=None,
+                        source_path=source_path,
+                        error=f"{type(result).__name__}: {result}",
+                        converted_from=None,
+                    )
+                )
+                if source_path:
+                    failed_files.append(source_path)
+                logger.error(f"OCR task raised {type(result).__name__} for {source_path}: {result}")
+                continue
+
+            _, result_file_idx, status, updated_entry, source_path, err = result
+
             if status == "SUCCESS":
                 files[file_idx] = updated_entry
                 total_successful += 1

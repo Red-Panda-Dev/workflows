@@ -461,6 +461,104 @@ async def test_workflow_pipeline_empty(sample_mapping_dir):
 
 
 @pytest.mark.anyio
+async def test_process_pdf_ocr_exception_isolation(tmp_path):
+    """Test that one task raising an exception does not cancel sibling tasks."""
+    from unittest.mock import AsyncMock, patch
+
+    unp = "111222333"
+    (tmp_path / unp).mkdir()
+    pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF"
+    for name in ("a.pdf", "b.pdf", "c.pdf"):
+        (tmp_path / unp / name).write_bytes(pdf_content)
+
+    original_mapping = {
+        unp: {
+            "title": "Isolation Test",
+            "files": [
+                {"id": 1, "filename": "a.pdf"},
+                {"id": 2, "filename": "b.pdf"},
+                {"id": 3, "filename": "c.pdf"},
+            ],
+        }
+    }
+
+    scan_result = PdfOcrScanResult(
+        mapping_path=str(tmp_path / "mapping.json"),
+        mapping_raw=original_mapping,
+        total_unps_scanned=1,
+        total_pdf_entries=3,
+        work_items=[
+            PdfOcrWorkItem(
+                unp=unp,
+                file_index=0,
+                filename="a.pdf",
+                file_path=str(tmp_path / unp / "a.pdf"),
+                entry={"id": 1, "filename": "a.pdf"},
+            ),
+            PdfOcrWorkItem(
+                unp=unp,
+                file_index=1,
+                filename="b.pdf",
+                file_path=str(tmp_path / unp / "b.pdf"),
+                entry={"id": 2, "filename": "b.pdf"},
+            ),
+            PdfOcrWorkItem(
+                unp=unp,
+                file_index=2,
+                filename="c.pdf",
+                file_path=str(tmp_path / unp / "c.pdf"),
+                entry={"id": 3, "filename": "c.pdf"},
+            ),
+        ],
+        by_unp={unp: {"pdf_entries": 3}},
+        output_dir=str(tmp_path),
+        mapping_filename="mapping.json",
+        cleanup_source=None,
+    )
+
+    call_count = 0
+
+    async def _mock_process(u, output_root, item, overwrite):
+        nonlocal call_count
+        call_count += 1
+        if item.filename == "b.pdf":
+            raise RuntimeError("simulated OCR API failure")
+        return (
+            0,
+            item.file_index,
+            "SUCCESS",
+            {"id": item.entry["id"], "filename": item.filename},
+            str(Path(item.file_path)),
+            None,
+        )
+
+    with patch(
+        "workflows.epfr.pdf_ocr_workflow._process_work_item",
+        new=AsyncMock(side_effect=_mock_process),
+    ):
+        result = await process_pdf_ocr(str(tmp_path), scan_result, overwrite=True)
+
+    assert result.total_failed == 1
+    assert result.total_successful == 2
+    assert len(result.results) == 3
+
+    failed = [r for r in result.results if r.status == "FAILED"]
+    assert len(failed) == 1
+    assert failed[0].original_filename == "b.pdf"
+    assert "RuntimeError" in (failed[0].error or "")
+
+    successful = sorted([r for r in result.results if r.status == "SUCCESS"], key=lambda r: r.original_filename)
+    assert len(successful) == 2
+    assert successful[0].original_filename == "a.pdf"
+    assert successful[1].original_filename == "c.pdf"
+
+    mapping_files = result.updated_mapping[unp]["files"]
+    assert mapping_files[0]["filename"] == "a.pdf"
+    assert mapping_files[2]["filename"] == "c.pdf"
+    assert mapping_files[1]["filename"] == "b.pdf"
+
+
+@pytest.mark.anyio
 async def test_workflow_pipeline_structure(sample_mapping_dir):
     """Test that data flows correctly through all 3 activities."""
     tmpdir, mapping_path, expected_mapping = sample_mapping_dir
