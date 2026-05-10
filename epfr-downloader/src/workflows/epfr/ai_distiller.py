@@ -1,4 +1,26 @@
-"""AI dividend distillation for EPFR markdown files."""
+"""AI dividend distillation workflow for EPFR markdown files.
+
+This module implements the third stage of the EPFR pipeline: it takes markdown files
+produced by the download and OCR stages, and uses Mistral AI (chat.parse with structured
+output) to extract normalized dividend payout data.
+
+The workflow reads the UNP file mapping JSON, processes each markdown file sequentially,
+extracts dividend information (share type, period, amounts, dates), normalizes and validates
+the data, and produces ai_distilled_dividends.json as output. This structured output feeds
+the fourth stage (share payout exporter) which joins dividends with share reference data.
+
+Key business rules enforced:
+    - Dividend dates must be ordered: decision_date >= record_date, payment_date > decision_date
+    - Period numbers validated against period types (annual=1, halfyear=1-2, quarterly=1-4)
+    - Share types normalized to "common" or "preferred"
+    - Amounts converted to Decimal for 8-decimal precision
+    - Missing fields auto-filled with heuristics and tracked in autofilled_fields list
+
+Error handling:
+    - Transient AI errors (503, 502, 429, timeout) retried with exponential backoff
+    - Rate limit (429) uses separate higher backoff cap (ai_retry_backoff_max_429)
+    - Non-retryable errors fail immediately; file-level failures recorded but don't stop workflow
+"""
 
 import asyncio
 import json
@@ -32,6 +54,26 @@ _PROMPT_TEMPLATE: str | None = None
 
 
 class _RawDividendEntry(BaseModel):
+    """Internal model for raw AI extraction output before normalization.
+
+    Represents a single dividend entry as returned by Mistral AI chat.parse, before
+    type conversion, validation, and auto-filling. All fields are optional because
+    the AI may not extract every field from every document.
+
+    This is an internal-only model used during extraction. The normalized equivalent
+    is EpfrDividendEntry which enforces business constraints.
+
+    Attributes:
+        share_type: Share classification as extracted by AI (e.g., "common", "preferred", or raw text).
+        period_year: The year of the dividend period.
+        period_type: The type of period (e.g., "annual", "halfyear", "quarterly").
+        period_number: The number within the period type (1 for annual, 1-2 for halfyear, 1-4 for quarterly).
+        amount_per_share: Dividend amount per share, may be float, int, or string representation.
+        decision_date: Date when dividend was decided, in ISO 8601 format (YYYY-MM-DD).
+        record_date: Date of record for dividend eligibility, in ISO 8601 format.
+        payment_date: Date when dividend is paid, in ISO 8601 format.
+    """
+
     share_type: str | None = None
     period_year: int | None = None
     period_type: str | None = None
@@ -43,15 +85,59 @@ class _RawDividendEntry(BaseModel):
 
 
 class _RawExtraction(BaseModel):
+    """Container for AI extraction results for a single markdown file.
+
+    Wraps the structured output from Mistral AI chat.parse for one document.
+    This is the top-level model returned by the AI for each file processed.
+
+    Attributes:
+        has_dividends: Whether the AI found any dividend information in the document.
+        ai_comment: AI-generated commentary or explanation about the extraction result.
+            May contain reasons why no dividends were found, or notes about the data.
+        dividends: List of raw dividend entries extracted from the document. Empty
+            if has_dividends is False.
+    """
+
     has_dividends: bool = False
     ai_comment: str = ""
     dividends: list[_RawDividendEntry] = Field(default_factory=list)
 
 
 class AIDistiller:
-    """Reusable Mistral chat.parse client for EPFR dividend extraction."""
+    """Reusable Mistral chat.parse client for EPFR dividend extraction.
+
+    Central client class that manages all AI extraction operations for the EPFR pipeline.
+    It wraps the Mistral AI chat API with structured output parsing (chat.parse) to extract
+    dividend data from markdown documents.
+
+    The class loads the prompt template once on initialization, constructs the system
+    instruction with a reference date, and provides methods for single extraction calls
+    and retry-enabled extraction for production robustness.
+
+    Attributes:
+        system_instruction: The full system prompt sent to Mistral, including the
+            loaded template with reference date substituted.
+        model_name: Identifier of the Mistral model to use (e.g., "ministral-8b-latest").
+        temperature: Model temperature for controlling randomness (0.0 for deterministic).
+        max_tokens: Maximum tokens to generate in the response.
+    """
 
     def __init__(self, model_name: str, temperature: float, reference_date: str) -> None:
+        """Initialize AI distiller with model config and reference date.
+
+        Args:
+            model_name: Mistral model identifier (e.g., "ministral-8b-latest", "mistral-large-latest").
+            temperature: Model temperature for controlling output randomness. Use 0.0 for
+                deterministic extractions (recommended for structured data extraction).
+            reference_date: ISO 8601 date string (YYYY-MM-DD) used as the reference
+                point in the system prompt. Typically the current date when the distiller
+                is created.
+
+        Side effects:
+            - Loads the prompt template from prompts/dividends_parsing.md
+            - Substitutes {{REFERENCE_DATE}} placeholder in the template
+            - Logs initialization details for audit trail
+        """
         logger.info(
             f"Initializing AIDistiller: model={model_name}, temperature={temperature}, reference_date={reference_date}"
         )
@@ -64,6 +150,22 @@ class AIDistiller:
         logger.info("AIDistiller ready: prompt_template_loaded=True")
 
     async def extract(self, markdown_text: str) -> _RawExtraction:
+        """Send markdown text to Mistral AI for structured dividend extraction.
+
+        Performs a single AI call to extract dividend information from a markdown document.
+        Uses chat.parse with structured output to get a strongly-typed _RawExtraction result.
+
+        Args:
+            markdown_text: The full content of the markdown file to extract dividends from.
+
+        Returns:
+            _RawExtraction: Parsed extraction result containing has_dividends flag,
+                AI comment, and list of raw dividend entries.
+
+        Raises:
+            ValueError: If the Mistral API returns an empty or invalid response (no
+                choices, no message, or no content in the parsed response).
+        """
         logger.debug(f"Sending extraction request: text_length={len(markdown_text)} chars")
         request = ChatCompletionRequest(
             model=self.model_name,
@@ -82,6 +184,32 @@ class AIDistiller:
         return _RawExtraction.model_validate_json(str(response.choices[0].message.content))
 
     async def extract_with_retry(self, markdown_text: str, max_retries: int, file_path: Path) -> _RawExtraction:
+        """Extract with exponential backoff retry for transient AI failures.
+
+        Wraps the extract method with retry logic for handling transient API errors.
+        Implements capped exponential backoff with jitter, with special handling for
+        rate limits (429).
+
+        Args:
+            markdown_text: The full content of the markdown file to extract dividends from.
+            max_retries: Maximum number of retry attempts (including the initial call).
+            file_path: Path to the file being processed, used for logging context only.
+
+        Returns:
+            _RawExtraction: Parsed extraction result after successful AI call.
+
+        Raises:
+            RuntimeError: If all retry attempts are exhausted. The exception message
+                includes the file path and the final error details.
+            asyncio.CancelledError: If the operation is cancelled during retry.
+
+        Business logic:
+            - Retries on 503, 502, 429, timeout, overload, and CancelledError
+            - Rate limit (429) triggers use ai_retry_backoff_max_429 cap (90s default)
+            - Other errors use ai_retry_backoff_max cap (30s default)
+            - Jitter is applied to prevent thundering herd problems
+            - Wait times are capped at configured maximums from EPFR config
+        """
         logger.info(f"Starting extraction with retries: file={file_path.name}, max_retries={max_retries}")
         for attempt in range(max_retries):
             try:
@@ -109,7 +237,27 @@ class AIDistiller:
 
 
 def _compute_retry_wait_seconds(attempt: int, *, is_rate_limited: bool) -> float:
-    """Compute capped exponential backoff with jitter for AI retries."""
+    """Compute capped exponential backoff with jitter for AI retries.
+
+    Calculates the wait time before the next retry attempt using exponential backoff
+    with random jitter. The wait time is capped at a configured maximum to prevent
+    excessively long delays.
+
+    Args:
+        attempt: Zero-based attempt number (0 for first retry, 1 for second, etc.).
+        is_rate_limited: If True, the error was a 429 rate limit, which uses a
+            higher maximum backoff cap (ai_retry_backoff_max_429).
+
+    Returns:
+        float: Wait time in seconds, rounded to 2 decimal places. Minimum is 0.1s.
+
+    Business logic:
+        - Base wait = (ai_retry_backoff_base ^ (attempt + 1))
+        - Capped at ai_retry_backoff_max (30s default) or ai_retry_backoff_max_429 (90s for rate limits)
+        - Jitter = random value in [-jitter_span, +jitter_span] where jitter_span = base_wait * ai_retry_jitter_ratio
+        - Final wait = base_wait + jitter, clamped to minimum 0.1s
+        - Jitter prevents synchronized retry storms from multiple workers
+    """
     cfg = load_epfr_config()
     capped_max = cfg.ai_retry_backoff_max_429 if is_rate_limited else cfg.ai_retry_backoff_max
     base_wait = min(float(cfg.ai_retry_backoff_base ** (attempt + 1)), float(capped_max))
@@ -120,6 +268,25 @@ def _compute_retry_wait_seconds(attempt: int, *, is_rate_limited: bool) -> float
 
 
 def _load_prompt_template() -> str:
+    """Load AI prompt template from filesystem with caching.
+
+    Loads the dividend parsing prompt template from the prompts directory.
+    The template is cached globally in the _PROMPT_TEMPLATE module variable to
+    avoid repeated file I/O across multiple extraction calls.
+
+    Returns:
+        str: The prompt template content as a string.
+
+    Raises:
+        FileNotFoundError: If the template file is not found at the expected path
+            (prompts/dividends_parsing.md relative to this module).
+
+    Business logic:
+        - Template path: <module_dir>/prompts/dividends_parsing.md
+        - Template contains {{REFERENCE_DATE}} placeholder that must be substituted
+          before use (done in AIDistiller.__init__)
+        - Caching ensures the template is loaded only once per process lifetime
+    """
     global _PROMPT_TEMPLATE
     if _PROMPT_TEMPLATE is None:
         prompt_path = Path(__file__).parent / "prompts" / "dividends_parsing.md"
@@ -130,12 +297,50 @@ def _load_prompt_template() -> str:
 
 
 def _parse_iso_date(value: str | None) -> date | None:
+    """Parse ISO 8601 date string to date object.
+
+    Converts a date string in YYYY-MM-DD format to a Python date object.
+    Handles None input gracefully by returning None.
+
+    Args:
+        value: Date string in ISO 8601 format (YYYY-MM-DD), or None.
+
+    Returns:
+        date: Parsed date object, or None if input was None or empty.
+
+    Raises:
+        ValueError: If the string cannot be parsed as a valid ISO 8601 date.
+
+    Business logic:
+        - AI returns dates as strings in YYYY-MM-DD format
+        - Empty strings and None are both treated as missing dates
+        - This is the entry point for all date parsing from raw AI extraction
+    """
     if not value:
         return None
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
 def _shift_months(value: date, months: int) -> date:
+    """Shift a date by specified number of months, handling month boundaries.
+
+    Adds or subtracts months from a date while properly handling month length
+    differences. For example, shifting Jan 31 by 1 month returns Feb 28/29
+    (not March 31).
+
+    Args:
+        value: The base date to shift.
+        months: Number of months to add (can be negative to subtract months).
+
+    Returns:
+        date: New date with months added, clamped to valid day for the target month.
+
+    Business logic:
+        - Handles leap years: Feb 29 in a leap year becomes Feb 28 in non-leap years
+        - Respects month lengths: Jan 31 + 1 month = Feb 28/29, not March 3
+        - Used for auto-filling missing dates: record_date defaults to decision_date - 1 month
+        - payment_date defaults to decision_date + 2 months (for non-zero amounts)
+    """
     month_index = value.month - 1 + months
     year = value.year + month_index // 12
     month = month_index % 12 + 1
@@ -150,7 +355,24 @@ def _shift_months(value: date, months: int) -> date:
 
 
 def _safe_replace_year(value: date, new_year: int) -> date:
-    """Replace year safely, handling leap-day rollover."""
+    """Replace year in date safely, handling leap-day rollover.
+
+    Changes the year of a date while preserving month and day. If the original
+    date is Feb 29 and the new year is not a leap year, falls back to Feb 28.
+
+    Args:
+        value: The original date whose year will be replaced.
+        new_year: The new year to set.
+
+    Returns:
+        date: New date with the year replaced. If the original was Feb 29 and
+            new_year is not a leap year, returns Feb 28 of new_year.
+
+    Business logic:
+        - Leap day handling: Feb 29 in a leap year becomes Feb 28 in non-leap years
+        - Used during annual period year correction when the period_year doesn't
+          match the decision_date year (e.g., 2025 dividends decided in late 2024)
+    """
     try:
         return value.replace(year=new_year)
     except ValueError:
@@ -165,7 +387,37 @@ def _validate_and_correct_dates(
     payment_date: date,
     autofilled: list[str],
 ) -> tuple[int, date, date, date]:
-    """Apply post-extraction date sanity checks and corrections."""
+    """Apply post-extraction date sanity checks and corrections.
+
+    Validates and corrects dividend dates to ensure they follow business rules.
+    Mutates the autofilled list to track which corrections were applied.
+
+    Args:
+        period_type: The dividend period type ("annual", "halfyear", "quarterly").
+        period_year: The dividend period year.
+        decision_date: Date when dividend was decided.
+        record_date: Date of record for dividend eligibility.
+        payment_date: Date when dividend is paid.
+        autofilled: List of strings tracking which fields were auto-filled or corrected.
+            This list is mutated in-place to add correction flags.
+
+    Returns:
+        tuple: Corrected values as (period_year, decision_date, record_date, payment_date).
+
+    Side effects:
+        - Appends correction flags to the autofilled list (e.g., "record_date_corrected")
+
+    Business logic:
+        - Date gap check: If decision_date is >6 months before record_date, shifts
+          record_date back by 1 month (common data entry error pattern)
+        - Payment date gap: If payment_date is >1 year after decision_date, shifts
+          payment_date forward by 2 months
+        - Annual period year correction: If period_type is "annual" and period_year
+          equals decision_date year, checks if dates belong to next year. If so,
+          either decrements period_year or shifts all dates to next year.
+        - Final ordering guard: Ensures decision_date >= record_date and
+          payment_date > decision_date, correcting if necessary.
+    """
     if (decision_date.toordinal() - record_date.toordinal()) > 183:
         record_date = _shift_months(decision_date, -1)
         autofilled.append("record_date_corrected")
@@ -199,7 +451,42 @@ def _validate_and_correct_dates(
 
 
 def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tuple[EpfrDividendEntry, list[str]]:
-    """Normalize AI raw dividend payload and auto-fill missing required dates."""
+    """Normalize and validate raw AI dividend entry, auto-filling missing fields.
+
+    Converts a raw AI extraction (_RawDividendEntry) into a validated
+    EpfrDividendEntry with all required fields populated. Tracks which fields
+    were auto-filled for downstream quality analysis.
+
+    Args:
+        raw: Raw dividend entry from AI extraction with potentially missing or
+            invalid fields.
+        upload_date: The upload date of the source file in ISO 8601 format (YYYY-MM-DD).
+            Used as the baseline for auto-filling missing dates.
+
+    Returns:
+        tuple: (normalized EpfrDividendEntry, list of auto-filled field names).
+            The EpfrDividendEntry is guaranteed to pass all business constraint validations.
+
+    Business logic:
+        - Amount conversion: String/int/float amounts converted to Decimal for
+          8-decimal precision. None becomes Decimal("0").
+        - Share type normalization: Any non-standard value defaults to "common".
+          Tracks this in autofilled if the original wasn't "common" or "preferred".
+        - Date auto-filling hierarchy:
+          - decision_date: defaults to upload_date - 1 month (or today - 1 month if
+            upload_date unavailable)
+          - record_date: defaults to decision_date - 1 month
+          - payment_date: defaults to decision_date + 1 day (if amount=0) or
+            decision_date + 2 months (if amount>0)
+        - Period normalization:
+          - period_type: defaults to "annual" if missing or invalid
+          - period_number: defaults to 1 if missing
+          - period_year: defaults to decision_date.year if missing
+        - Validation: Calls _validate_and_correct_dates to enforce date ordering.
+          If validation fails, applies fallback corrections (payment_date and
+          record_date adjustments) and retries validation.
+        - All auto-filled fields are tracked in the returned list for audit purposes.
+    """
     autofilled: list[str] = []
 
     decision_date = _parse_iso_date(raw.decision_date)
@@ -279,7 +566,47 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
 
 
 async def run_ai_distillation(input: EpfrAiDistillerInput) -> dict[str, Any]:
-    """Run sequential AI distillation over mapped EPFR markdown files."""
+    """Main entry point for AI distillation workflow.
+
+    Orchestrates the complete AI distillation pipeline: reads the UNP file mapping,
+    processes each markdown file sequentially with AI extraction, normalizes the
+    results, and writes the output JSON atomically.
+
+    This is the primary function called by the epfr-ai-distiller workflow.
+
+    Args:
+        input: Configuration for the AI distillation run. Must have all fields resolved
+            (not None) before calling. Contains output_dir, mapping_filename, output_filename,
+            model_name, temperature, max_retries, file_delay_seconds, and optional unps filter.
+
+    Returns:
+        dict: Statistics dictionary with keys:
+            - output_path: Absolute path to the output JSON file
+            - total_companies: Number of companies processed
+            - total_files: Total number of markdown files processed
+            - successful: Count of files successfully processed
+            - failed: Count of files that failed processing
+            - failed_files: List of file paths that failed
+
+    Raises:
+        FileNotFoundError: If the mapping file does not exist at the expected path.
+        AssertionError: If any required input field is None (not pre-resolved).
+
+    Business logic:
+        - Reads mapping JSON from output_dir/mapping_filename to get company/file list
+        - Supports optional UNP filtering via input.unps (processes only specified UNPs)
+        - Creates AIDistiller instance with configured model and temperature
+        - Processes companies sequentially (not in parallel) to avoid rate limiting
+        - For each company, processes each markdown file:
+          - Loads file content from output_dir/<unp>/<filename>
+          - Calls AI extraction with retry (extract_with_retry)
+          - Normalizes each dividend entry (normalize_and_fill_dividend)
+          - Tracks autofilled fields per file
+          - Records errors but continues with remaining files
+        - Respects file_delay_seconds between file processing to avoid rate limits
+        - Writes output atomically using tempfile.mkstemp() + os.replace() pattern
+        - Logs progress at company and file level for monitoring
+    """
     assert input.output_dir is not None, "output_dir must be resolved before calling run_ai_distillation"
     assert input.mapping_filename is not None, "mapping_filename must be resolved"
     assert input.output_filename is not None, "output_filename must be resolved"
