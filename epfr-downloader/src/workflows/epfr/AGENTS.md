@@ -224,15 +224,22 @@ No circular imports. `config.py`, `models.py`, `detector.py`, `extractor.py`, an
 
 ## Tests
 
-7 test modules cover all major components. Run with `make test` from inside `epfr-downloader/`.
+15 test modules in `src/tests/` cover all major components. Run with `make test` from inside `epfr-downloader/`.
 
 **Note:** `test_pdf_ocr.py` is skipped by default (requires Mistral OCR API credentials).
 
 When modifying any module, run the corresponding test file:
 - `client.py` → `test_client.py`
+- `config.py` → `test_config.py`
 - `detector.py` → `test_detector.py`
 - `extractor.py` → `test_extractor.py`
 - `converter.py` → `test_converter.py`
-- `pdf_ocr.py` → `test_pdf_ocr.py` (skipped by default)
+- `markdown_cleanup.py` → `test_markdown_cleanup.py`
+- `pdf_ocr.py` → `test_pdf_ocr.py` (skipped by default), `test_pdf_ocr_mapping.py`
+- `pdf_ocr_workflow.py` → `test_pdf_ocr_workflow.py`
 - `ai_distiller.py` → `test_ai_distiller.py`
+- `share_payout_exporter.py` → `test_share_payout_exporter.py`
+- `share_payout_exporter_workflow.py` → `test_workflow_wrappers.py`
 - `models.py` → `test_models.py`
+- `workflow.py` → `test_workflow_wrappers.py`
+- `discover.py` / `start.py` → `test_start_cli.py`
