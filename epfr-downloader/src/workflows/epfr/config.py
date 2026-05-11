@@ -377,4 +377,10 @@ DEPLOYMENT_NAME: str = EPFR_DEFAULTS.deployment_name
 
 
 def get_shares_source_data_csv() -> Path:
+    """Return the absolute path to the shares source data CSV file.
+
+    Returns:
+        Path: Absolute path to ``shares_source_data.csv`` at the repository root,
+            resolved by navigating 4 parent directories up from this module.
+    """
     return Path(__file__).resolve().parents[4] / "shares_source_data.csv"
