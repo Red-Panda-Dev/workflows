@@ -351,6 +351,173 @@ class TestSaveUnpMappingMultipleUnps:
         assert data["222222222"]["title"] == "Co B"
 
 
+class TestSaveUnpMappingEdgeCases:
+    """Additional edge cases for save_unp_mapping."""
+
+    @pytest.mark.anyio
+    async def test_upload_date_empty_string(self, tmp_path: Path):
+        """Handles empty string upload_date - produces empty string."""
+        holder = _holder()
+        record = _record(upload_date="", holder=holder)
+
+        unp_dir = tmp_path / holder.unp
+        unp_dir.mkdir()
+        (unp_dir / "1.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        await save_unp_mapping(
+            records=[record],
+            output_dir=str(tmp_path),
+            download_stats={"file_map": {"1": "1.pdf"}, "by_unp": {holder.unp: {"files": ["1.pdf"]}}},
+            extraction_stats={"by_unp": {}},
+            conversion_stats={"cleaned_up_files": []},
+        )
+
+        data = json.loads((tmp_path / "unp_file_mapping.json").read_text(encoding="utf-8"))
+        files = data[holder.unp]["files"]
+        assert len(files) == 1
+        assert files[0]["upload_date"] == ""
+
+    @pytest.mark.anyio
+    async def test_upload_date_no_space(self, tmp_path: Path):
+        """Handles upload_date without space separator."""
+        holder = _holder()
+        record = _record(upload_date="2026-01-15", holder=holder)
+
+        unp_dir = tmp_path / holder.unp
+        unp_dir.mkdir()
+        (unp_dir / "1.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        await save_unp_mapping(
+            records=[record],
+            output_dir=str(tmp_path),
+            download_stats={"file_map": {"1": "1.pdf"}, "by_unp": {holder.unp: {"files": ["1.pdf"]}}},
+            extraction_stats={"by_unp": {}},
+            conversion_stats={"cleaned_up_files": []},
+        )
+
+        data = json.loads((tmp_path / "unp_file_mapping.json").read_text(encoding="utf-8"))
+        files = data[holder.unp]["files"]
+        assert len(files) == 1
+        assert files[0]["upload_date"] == "2026-01-15"
+
+    @pytest.mark.anyio
+    async def test_empty_archive_to_files(self, tmp_path: Path):
+        """Handles archive with no extracted files - no entries created."""
+        holder = _holder()
+        record = _record(holder=holder)
+
+        unp_dir = tmp_path / holder.unp
+        unp_dir.mkdir()
+        (unp_dir / "archive.zip").write_bytes(b"PK\x03\x04 fake zip")
+
+        await save_unp_mapping(
+            records=[record],
+            output_dir=str(tmp_path),
+            download_stats={"file_map": {"1": "archive.zip"}, "by_unp": {holder.unp: {"files": ["archive.zip"]}}},
+            extraction_stats={
+                "by_unp": {
+                    holder.unp: {
+                        "archive_to_files": {"archive.zip": []},  # Empty list
+                    }
+                }
+            },
+            conversion_stats={"cleaned_up_files": []},
+        )
+
+        data = json.loads((tmp_path / "unp_file_mapping.json").read_text(encoding="utf-8"))
+        # Archive with no extracted files should not produce entries
+        assert holder.unp not in data
+
+    @pytest.mark.anyio
+    async def test_file_exists_not_converted_not_extracted(self, tmp_path: Path):
+        """File exists on disk but wasn't converted or extracted - kept as is."""
+        holder = _holder()
+        record = _record(holder=holder)
+
+        unp_dir = tmp_path / holder.unp
+        unp_dir.mkdir()
+        (unp_dir / "1.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        await save_unp_mapping(
+            records=[record],
+            output_dir=str(tmp_path),
+            download_stats={"file_map": {"1": "1.pdf"}, "by_unp": {holder.unp: {"files": ["1.pdf"]}}},
+            extraction_stats={"by_unp": {}},  # Not an archive
+            conversion_stats={"cleaned_up_files": []},  # Not converted
+        )
+
+        data = json.loads((tmp_path / "unp_file_mapping.json").read_text(encoding="utf-8"))
+        files = data[holder.unp]["files"]
+        assert len(files) == 1
+        assert files[0]["filename"] == "1.pdf"
+        assert files[0]["extracted_from"] is None
+        assert files[0]["converted_from"] is None
+
+    @pytest.mark.anyio
+    async def test_atomic_write_exception(self, tmp_path: Path, mocker):
+        """Handles exception during file write - raises RuntimeError and cleans temp file."""
+        holder = _holder()
+        record = _record(holder=holder)
+
+        unp_dir = tmp_path / holder.unp
+        unp_dir.mkdir()
+        (unp_dir / "1.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        # Mock os.fdopen to raise an exception
+        mocker.patch(
+            "workflows.epfr.workflow.os.fdopen",
+            side_effect=IOError("Disk full"),
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            await save_unp_mapping(
+                records=[record],
+                output_dir=str(tmp_path),
+                download_stats={"file_map": {"1": "1.pdf"}, "by_unp": {holder.unp: {"files": ["1.pdf"]}}},
+                extraction_stats={"by_unp": {}},
+                conversion_stats={"cleaned_up_files": []},
+            )
+
+        assert "Failed to save mapping" in str(exc_info.value)
+        # Verify temp files are cleaned up
+        temp_files = list(tmp_path.glob(".mapping_*"))
+        assert len(temp_files) == 0
+
+    @pytest.mark.anyio
+    async def test_multiple_files_per_record_archive(self, tmp_path: Path):
+        """Handles records with archive extracting to multiple files."""
+        holder = _holder()
+        record = _record(holder=holder)
+
+        unp_dir = tmp_path / holder.unp
+        unp_dir.mkdir()
+        (unp_dir / "archive.zip").write_bytes(b"PK\x03\x04 fake zip")
+        (unp_dir / "file1.txt").write_bytes(b"content1")
+        (unp_dir / "file2.txt").write_bytes(b"content2")
+
+        await save_unp_mapping(
+            records=[record],
+            output_dir=str(tmp_path),
+            download_stats={"file_map": {"1": "archive.zip"}, "by_unp": {holder.unp: {"files": ["archive.zip"]}}},
+            extraction_stats={
+                "by_unp": {
+                    holder.unp: {
+                        "archive_to_files": {"archive.zip": ["file1.txt", "file2.txt"]},
+                    }
+                }
+            },
+            conversion_stats={"cleaned_up_files": []},
+        )
+
+        data = json.loads((tmp_path / "unp_file_mapping.json").read_text(encoding="utf-8"))
+        files = data[holder.unp]["files"]
+        assert len(files) == 2
+        filenames = {f["filename"] for f in files}
+        assert filenames == {"file1.txt", "file2.txt"}
+        # Both should have extracted_from
+        assert all(f["extracted_from"] == "archive.zip" for f in files)
+
+
 class TestWorkflowDiscovery:
     """Verify all four workflow classes are auto-discoverable with correct names."""
 

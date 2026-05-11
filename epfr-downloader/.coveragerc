@@ -1,19 +1,19 @@
 [run]
+branch = True
+source = src/workflows/epfr
 omit =
     */tests/*
     src/discover.py
     src/workflows/start.py
     src/tests/test_pdf_ocr.py
 
-include =
-    src/workflows/epfr/*
+[html]
+directory = coverage/html
 
 [report]
-omit =
-    */tests/*
-    src/discover.py
-    src/workflows/start.py
-    src/tests/test_pdf_ocr.py
-
-include =
-    src/workflows/epfr/*
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:

@@ -15,12 +15,14 @@ dependencies = [
     "xlrd>=2.0.1",
     "openpyxl>=3.1.0",
     "olefile>=0.47",
+    "pytest-mock>=3.14.0",
 ]
 
 [dependency-groups]
 dev = [
     "ruff==0.15.11",
     "pytest==9.0.3",
+    "pytest-mock==3.14.0",
     "coverage>=7.6",
 ]
 
