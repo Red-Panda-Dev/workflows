@@ -583,8 +583,10 @@ class EpfrSharePayoutExportOutput(BaseModel):
     """Report share payout export totals and output location."""
 
     output_path: str = ""
+    sql_path: str = ""
     total_companies: int = 0
     total_payouts: int = 0
     matched_payouts: int = 0
     unmatched_payouts: int = 0
+    sql_records: int = 0
     stats: dict[str, Any] = Field(default_factory=dict)

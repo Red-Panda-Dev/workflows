@@ -1,9 +1,10 @@
 """Workflow for share payout export from distilled dividends.
 
-The workflow is split into 3 activities for UI progress tracking:
+The workflow is split into 4 activities for UI progress tracking:
 1. scan_share_payout_export - Load CSV index and distilled JSON
 2. process_share_payout_matching - Match dividends against CSV index
 3. finalize_share_payout_export - Save export JSON output
+4. generate_share_payout_sql - Generate SQL INSERT statements from JSON output
 """
 
 import json
@@ -16,7 +17,7 @@ from typing import Any
 import mistralai.workflows as workflows
 
 from . import config
-from .config import get_shares_source_data_csv, resolve_share_payout_export_input
+from .config import get_shares_source_data_csv, resolve_share_payout_export_input, SHARE_DIVIDENDS_SQL_FILENAME
 from .models import (
     EpfrSharePayoutExportInput,
     EpfrSharePayoutExportOutput,
@@ -293,6 +294,128 @@ async def finalize_share_payout_export(
 
 
 # =============================================================================
+# Activity 4: Generate Share Payout SQL
+# =============================================================================
+
+# =============================================================================
+# Activity 4: Generate Share Payout SQL
+# =============================================================================
+
+
+@workflows.activity()
+async def generate_share_payout_sql(
+    scan_result: SharePayoutScanResult,
+    final_stats: dict[str, Any],
+) -> dict[str, Any]:
+    """Generate SQL INSERT statements from the exported JSON.
+
+    This is Step 4/4 of the Share Payout Exporter workflow. It reads the
+    share_payouts_by_unp.json file and generates SQL INSERT statements for
+    the database, writing to share_dividends_insert.sql.
+
+    Args:
+        scan_result: Output from scan_share_payout_export activity.
+        final_stats: Output from finalize_share_payout_export activity.
+
+    Returns:
+        Dictionary with sql_path, sql_records, and status information.
+
+    Raises:
+        RuntimeError: If SQL generation fails.
+    """
+    output_dir = Path(scan_result.output_dir)
+    json_path = output_dir / scan_result.output_filename
+    sql_path = output_dir / SHARE_DIVIDENDS_SQL_FILENAME
+
+    # Generate SQL directly (inline the logic from generate_sql.py)
+    if not json_path.exists():
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
+
+    import json as json_mod
+
+    with json_path.open() as f:
+        data: dict[str, list[dict]] = json_mod.load(f)
+
+    def format_value(value: str | int | float | None, is_string: bool = False) -> str:
+        """Format a value for SQL insertion."""
+        if value is None:
+            return "NULL"
+        if is_string:
+            return f"'{value}'"
+        return str(value)
+
+    def generate_values_row(record: dict) -> str:
+        """Generate a single VALUES row from a dividend record."""
+        share_uuid = format_value(record.get("share_uuid"), is_string=True)
+        period_year = format_value(record.get("period_year"))
+        period_type = format_value(record.get("period_type"), is_string=True)
+        period_number = format_value(record.get("period_number"))
+        amount_per_share = format_value(record.get("amount_per_share"))
+        decision_date = format_value(record.get("decision_date"), is_string=True)
+        record_date = format_value(record.get("record_date"), is_string=True)
+        payment_date = format_value(record.get("payment_date"), is_string=True)
+
+        return (
+            f"    ({share_uuid}, {period_year}, {period_type}, {period_number}, "
+            f"{amount_per_share}, {decision_date}, {record_date}, {payment_date}, "
+            f"NOW(), NOW(), TRUE)"
+        )
+
+    rows: list[str] = []
+    seen: set[tuple] = set()
+
+    for _unp, payouts in data.items():
+        for record in payouts:
+            key = (
+                record.get("share_uuid"),
+                record.get("period_year"),
+                record.get("period_type"),
+                record.get("period_number"),
+                record.get("amount_per_share"),
+                record.get("decision_date"),
+                record.get("record_date"),
+                record.get("payment_date"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(generate_values_row(record))
+
+    values_block = ",\n".join(rows)
+
+    sql_content = f"""INSERT INTO public.share_dividend(
+    share_uuid, period_year, period_type, period_number,
+    amount_per_share, decision_date, record_date, payment_date,
+    created_at, updated_at, is_frozen)
+VALUES
+{values_block}
+ON CONFLICT DO NOTHING;"""
+
+    # Atomic write
+    sql_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(suffix=".sql", dir=str(sql_path.parent))
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(f"-- Generated from {json_path.name}\n")
+            f.write(f"-- Total: {len(rows)} unique records\n\n")
+            f.write(sql_content)
+            f.write("\n")
+        os.replace(tmp_path, str(sql_path))
+    except Exception as exc:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise RuntimeError(f"Failed to write SQL file: {exc}") from exc
+
+    logger.info(f"Generating SQL from: {json_path}")
+    logger.info(f"SQL generated: {sql_path} with {len(rows)} records")
+
+    return {
+        "sql_path": str(sql_path.resolve()),
+        "sql_records": len(rows),
+    }
+
+
+# =============================================================================
 # Workflow Class (Orchestrator)
 # =============================================================================
 
@@ -305,68 +428,78 @@ async def finalize_share_payout_export(
 class EpfrSharePayoutExporterWorkflow:
     """Export share payout data as DB-ready JSON keyed by UNP.
 
-    The workflow is split into 3 activities for granular UI progress tracking:
+    The workflow is split into 4 activities for granular UI progress tracking:
     1. scan_share_payout_export: Load CSV index and distilled JSON
     2. process_share_payout_matching: Match dividends against CSV index
     3. finalize_share_payout_export: Save export JSON output
+    4. generate_share_payout_sql: Generate SQL INSERT statements
 
     This allows the Mistral Workflows UI to display progress as:
-    - Step 1/3: Scanning CSV and distilled JSON...
-    - Step 2/3: Matching dividends against share reference...
-    - Step 3/3: Finalizing and saving export...
+    - Step 1/4: Scanning CSV and distilled JSON...
+    - Step 2/4: Matching dividends against share reference...
+    - Step 3/4: Finalizing and saving export...
+    - Step 4/4: Generating SQL INSERT statements...
     """
 
     @workflows.workflow.entrypoint
     async def run(self, input: EpfrSharePayoutExportInput) -> EpfrSharePayoutExportOutput:
-        """Run the share payout export workflow with 3 tracked steps.
+        """Run the share payout export workflow with 4 tracked steps.
 
-        Coordinates the 3 activities to provide granular progress tracking
+        Coordinates the 4 activities to provide granular progress tracking
         in the UI while maintaining the same external API contract.
 
         Args:
             input: Share payout export workflow input containing output location and CSV path.
 
         Returns:
-            Structured export output with totals, matched/unmatched counts, and raw stats.
+            Structured export output with totals, matched/unmatched counts, SQL path, and raw stats.
 
         """
         logger.info(f"Workflow {config.SHARE_PAYOUT_EXPORT_WORKFLOW_NAME} started: output_dir={input.output_dir}")
 
-        # Step 1/3: Scan CSV and distilled JSON
-        logger.info("Starting Step 1/3: Scanning CSV and distilled JSON...")
+        # Step 1/4: Scan CSV and distilled JSON
+        logger.info("Starting Step 1/4: Scanning CSV and distilled JSON...")
         scan_result = await scan_share_payout_export(input)
 
         logger.info(
-            f"Step 1/3 complete: {len(scan_result.csv_index)} CSV entries, {len(scan_result.distilled_data)} companies"
+            f"Step 1/4 complete: {len(scan_result.csv_index)} CSV entries, {len(scan_result.distilled_data)} companies"
         )
 
-        # Step 2/3: Match dividends against CSV index
-        logger.info("Starting Step 2/3: Matching dividends against share reference...")
+        # Step 2/4: Match dividends against CSV index
+        logger.info("Starting Step 2/4: Matching dividends against share reference...")
         process_result = await process_share_payout_matching(scan_result)
 
         logger.info(
-            f"Step 2/3 complete: {process_result.matched_count} matched, "
+            f"Step 2/4 complete: {process_result.matched_count} matched, "
             f"{process_result.skipped_file_errors} file errors"
         )
 
-        # Step 3/3: Finalize and save
-        logger.info("Starting Step 3/3: Finalizing and saving export...")
+        # Step 3/4: Finalize and save
+        logger.info("Starting Step 3/4: Finalizing and saving export...")
         final_stats = await finalize_share_payout_export(scan_result, process_result)
 
-        logger.info("Step 3/3 complete: Export saved")
+        logger.info("Step 3/4 complete: Export saved")
+
+        # Step 4/4: Generate SQL INSERT statements
+        logger.info("Starting Step 4/4: Generating SQL INSERT statements...")
+        sql_result = await generate_share_payout_sql(scan_result, final_stats)
+
+        logger.info("Step 4/4 complete: SQL generated")
 
         output = EpfrSharePayoutExportOutput(
             output_path=str(final_stats.get("output_path", "")),
+            sql_path=str(sql_result.get("sql_path", "")),
             total_companies=int(final_stats.get("total_companies_exported", 0)),
             total_payouts=int(final_stats.get("matched_payouts", 0)) + int(final_stats.get("unmatched_payouts", 0)),
             matched_payouts=int(final_stats.get("matched_payouts", 0)),
             unmatched_payouts=int(final_stats.get("unmatched_payouts", 0)),
+            sql_records=int(sql_result.get("sql_records", 0)),
             stats=final_stats,
         )
 
         logger.info(
             f"Workflow {config.SHARE_PAYOUT_EXPORT_WORKFLOW_NAME} finished: "
             f"{output.matched_payouts} matched, {output.unmatched_payouts} unmatched, "
-            f"output={output.output_path}"
+            f"{output.sql_records} SQL records, output={output.output_path}, sql={output.sql_path}"
         )
         return output

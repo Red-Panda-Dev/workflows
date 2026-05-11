@@ -101,6 +101,7 @@ class EpfrConfig:
     default_timeout: int
 
     share_payout_export_filename: str
+    share_dividends_sql_filename: str
 
     cleanup_source: bool
 
@@ -146,6 +147,7 @@ EPFR_DEFAULTS = EpfrConfig(
     default_date_to="",
     default_timeout=60,
     share_payout_export_filename="share_payouts_by_unp.json",
+    share_dividends_sql_filename="share_dividends_insert.sql",
     cleanup_source=True,
     mistral_api_key=None,
     server_url="https://api.mistral.ai",
@@ -189,6 +191,7 @@ _ENV_FIELDS: list[tuple[str, type, str, str | None]] = [
     ("default_date_to", str, "EPFR_DEFAULT_DATE_TO", None),
     ("default_timeout", int, "EPFR_DEFAULT_TIMEOUT", "positive_int"),
     ("share_payout_export_filename", str, "EPFR_SHARE_PAYOUT_EXPORT_FILENAME", None),
+    ("share_dividends_sql_filename", str, "EPFR_SHARE_DIVIDENDS_SQL_FILENAME", None),
     ("cleanup_source", bool, "EPFR_CLEANUP_SOURCE", "bool"),
     ("server_url", str, "SERVER_URL", None),
     ("deployment_name", str, "DEPLOYMENT_NAME", None),
@@ -368,6 +371,7 @@ PAGE_DELAY: float = EPFR_DEFAULTS.page_delay
 DEFAULT_DATE_TO: str = EPFR_DEFAULTS.default_date_to
 SHARE_PAYOUT_EXPORT_WORKFLOW_NAME = "epfr-share-payout-exporter"
 SHARE_PAYOUT_EXPORT_FILENAME: str = EPFR_DEFAULTS.share_payout_export_filename
+SHARE_DIVIDENDS_SQL_FILENAME: str = EPFR_DEFAULTS.share_dividends_sql_filename
 SERVER_URL: str = EPFR_DEFAULTS.server_url
 DEPLOYMENT_NAME: str = EPFR_DEFAULTS.deployment_name
 
