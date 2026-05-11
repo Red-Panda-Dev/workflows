@@ -175,6 +175,8 @@ def _setup_export(tmp_path: Path, companies: dict, csv_rows: list[str]) -> tuple
 
 
 class TestRunSharePayoutExport:
+    """Tests for the main export function run_share_payout_export."""
+
     def test_happy_path_common_match(self, tmp_path):
         _, inp = _setup_export(
             tmp_path,
@@ -756,11 +758,15 @@ class TestEpfrSharePayoutExporterWorkflowRun:
         async def mock_finalize(scan_result, process_result):
             return fake_stats
 
+        async def mock_sql(scan_result, final_stats):
+            return {"sql_path": "/tmp/out.sql", "sql_records": 5}
+
         with patch.multiple(
             "workflows.epfr.share_payout_exporter_workflow",
             scan_share_payout_export=mock_scan,
             process_share_payout_matching=mock_process,
             finalize_share_payout_export=mock_finalize,
+            generate_share_payout_sql=mock_sql,
         ):
             run_method = self._make_wf()
             result = await run_method(inp)
@@ -819,11 +825,15 @@ class TestEpfrSharePayoutExporterWorkflowRun:
         async def mock_finalize(scan_result, process_result):
             return fake_stats
 
+        async def mock_sql(scan_result, final_stats):
+            return {"sql_path": "/tmp/out.sql", "sql_records": 11}
+
         with patch.multiple(
             "workflows.epfr.share_payout_exporter_workflow",
             scan_share_payout_export=mock_scan,
             process_share_payout_matching=mock_process,
             finalize_share_payout_export=mock_finalize,
+            generate_share_payout_sql=mock_sql,
         ):
             run_method = self._make_wf()
             result = await run_method(inp)
@@ -873,11 +883,15 @@ class TestEpfrSharePayoutExporterWorkflowRun:
         async def mock_finalize(scan_result, process_result):
             return fake_stats
 
+        async def mock_sql(scan_result, final_stats):
+            return {"sql_path": "/tmp/out.sql", "sql_records": 0}
+
         with patch.multiple(
             "workflows.epfr.share_payout_exporter_workflow",
             scan_share_payout_export=mock_scan,
             process_share_payout_matching=mock_process,
             finalize_share_payout_export=mock_finalize,
+            generate_share_payout_sql=mock_sql,
         ):
             run_method = self._make_wf()
             result = await run_method(inp)
@@ -932,11 +946,15 @@ class TestEpfrSharePayoutExporterWorkflowRun:
         async def mock_finalize(scan_result, process_result):
             return fake_stats
 
+        async def mock_sql(scan_result, final_stats):
+            return {"sql_path": "/tmp/out.sql", "sql_records": 3}
+
         with patch.multiple(
             "workflows.epfr.share_payout_exporter_workflow",
             scan_share_payout_export=mock_scan,
             process_share_payout_matching=mock_process,
             finalize_share_payout_export=mock_finalize,
+            generate_share_payout_sql=mock_sql,
         ):
             run_method = self._make_wf()
             result = await run_method(inp)
