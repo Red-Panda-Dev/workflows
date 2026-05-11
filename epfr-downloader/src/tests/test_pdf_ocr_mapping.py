@@ -2,13 +2,13 @@
 
 # ruff: noqa: D102
 
-import importlib
-import json
-import sys
-import types
 from collections.abc import Iterator
 from dataclasses import dataclass
+import importlib
+import json
 from pathlib import Path
+import sys
+import types
 
 
 @dataclass
@@ -53,9 +53,9 @@ def pdf_ocr_module(monkeypatch) -> Iterator[types.ModuleType]:
     mistralai_workflows_plugins_module = _make_package_module("mistralai.workflows.plugins")
     mistralai_workflows_plugins_mistralai_module = types.ModuleType("mistralai.workflows.plugins.mistralai")
 
-    setattr(mistralai_client_models_module, "DocumentURLChunk", _DocumentURLChunk)
-    setattr(mistralai_workflows_plugins_mistralai_module, "OCRRequest", _OCRRequest)
-    setattr(mistralai_workflows_plugins_mistralai_module, "mistralai_ocr", _unconfigured_mistral_ocr)
+    mistralai_client_models_module.DocumentURLChunk = _DocumentURLChunk
+    mistralai_workflows_plugins_mistralai_module.OCRRequest = _OCRRequest
+    mistralai_workflows_plugins_mistralai_module.mistralai_ocr = _unconfigured_mistral_ocr
 
     monkeypatch.setitem(sys.modules, "mistralai", mistralai_module)
     monkeypatch.setitem(sys.modules, "mistralai.client", mistralai_client_module)

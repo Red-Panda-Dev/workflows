@@ -9,6 +9,7 @@ import json
 
 from dotenv import load_dotenv
 
+
 if __package__ in {None, ""}:
     _config = importlib.import_module("epfr.config")
 else:

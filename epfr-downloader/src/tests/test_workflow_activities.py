@@ -16,15 +16,16 @@ from pathlib import Path
 
 import pytest
 
+
 os.environ.pop("AGENT", None)
 
-from workflows.epfr.models import EpfrApiResponse, EpfrRecord, Holder, EpfrWorkflowInput
+from workflows.epfr.models import EpfrApiResponse, EpfrRecord, EpfrWorkflowInput, Holder
 from workflows.epfr.workflow import (
-    fetch_all_pages,
+    EpfrFilesDownloader,
+    convert_all_epfr_files,
     download_all_epfr_files,
     extract_all_epfr_archives,
-    convert_all_epfr_files,
-    EpfrFilesDownloader,
+    fetch_all_pages,
 )
 
 

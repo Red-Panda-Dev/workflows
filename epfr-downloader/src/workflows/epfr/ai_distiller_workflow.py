@@ -7,12 +7,12 @@ The workflow is split into 3 activities for UI progress tracking:
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 import json
 import logging
 import os
-import tempfile
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import tempfile
 from typing import Any
 
 import mistralai.workflows as workflows
@@ -27,6 +27,7 @@ from .models import (
     EpfrAiDistillerInput,
     EpfrAiDistillerOutput,
 )
+
 
 logger = logging.getLogger(__name__)
 

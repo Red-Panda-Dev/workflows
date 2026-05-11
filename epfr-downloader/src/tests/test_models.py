@@ -5,15 +5,15 @@
 from datetime import date
 from decimal import Decimal
 
-import pytest
 from pydantic import ValidationError
+import pytest
 
 from workflows.epfr.models import (
     CompanyFiles,
     EpfrAiDistilledCompany,
     EpfrAiDistilledFile,
-    EpfrApiResponse,
     EpfrAiDistillerInput,
+    EpfrApiResponse,
     EpfrDividendEntry,
     EpfrFileRecord,
     EpfrRecord,
@@ -23,6 +23,7 @@ from workflows.epfr.models import (
     EpfrWorkflowInput,
     EpfrWorkflowOutput,
 )
+
 
 SAMPLE_API_RESPONSE = {
     "content": [

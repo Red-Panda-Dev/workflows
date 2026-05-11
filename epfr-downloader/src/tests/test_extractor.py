@@ -5,10 +5,10 @@
 import asyncio
 import importlib
 import io
-import tarfile
-import zipfile
 from pathlib import Path
+import tarfile
 from typing import Literal
+import zipfile
 
 from workflows.epfr.extractor import (
     ARCHIVE_EXTENSIONS,
@@ -18,6 +18,7 @@ from workflows.epfr.extractor import (
     extract_unp_archives,
     is_archive,
 )
+
 
 pytest = importlib.import_module("pytest")
 

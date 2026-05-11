@@ -7,10 +7,12 @@ import json
 import os
 from pathlib import Path
 
+
 os.environ.pop("AGENT", None)
 
 from workflows.epfr.models import EpfrRecord, Holder
 from workflows.epfr.workflow import EpfrFilesDownloader, save_unp_mapping
+
 
 pytest = importlib.import_module("pytest")
 
@@ -466,7 +468,7 @@ class TestSaveUnpMappingEdgeCases:
         # Mock os.fdopen to raise an exception
         mocker.patch(
             "workflows.epfr.workflow.os.fdopen",
-            side_effect=IOError("Disk full"),
+            side_effect=OSError("Disk full"),
         )
 
         with pytest.raises(RuntimeError) as exc_info:
@@ -560,9 +562,9 @@ class TestAllWorkflowsDiscovered:
     def test_all_four_workflows_in_discovery(self):
         """The discover_workflows scan returns all four EPFR workflow classes."""
         os.environ.pop("AGENT", None)
-        from discover import discover_workflows
-
         from mistralai.workflows.core.definition.workflow_definition import get_workflow_definition
+
+        from discover import discover_workflows
 
         names = sorted(get_workflow_definition(wf).name for wf in discover_workflows())
         for expected_name in [

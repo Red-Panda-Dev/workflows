@@ -10,8 +10,8 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from typing import Any
 
 import mistralai.workflows as workflows
@@ -26,6 +26,7 @@ from .models import (
     PdfOcrWorkItem,
 )
 from .pdf_ocr import ocr_pdf_to_markdown
+
 
 logger = logging.getLogger(__name__)
 

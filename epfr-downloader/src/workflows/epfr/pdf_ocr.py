@@ -5,16 +5,16 @@ import base64
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from mistralai.client.models import DocumentURLChunk
-from mistralai.workflows.plugins.mistralai import OCRRequest
-from mistralai.workflows.plugins.mistralai import mistralai_ocr as _mistralai_ocr
+from mistralai.workflows.plugins.mistralai import OCRRequest, mistralai_ocr as _mistralai_ocr
 
 from .config import load_epfr_config
 from .markdown_cleanup import clean_markdown_text
+
 
 logger = logging.getLogger(__name__)
 

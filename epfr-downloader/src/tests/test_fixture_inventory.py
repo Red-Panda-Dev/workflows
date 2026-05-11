@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable
-from typing import Any
+import importlib
 from pathlib import Path
+from typing import Any
+
 
 pytest = importlib.import_module("pytest")
 

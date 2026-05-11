@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import importlib
 import json
-import shutil
 from pathlib import Path
-from collections.abc import Callable
+import shutil
 from typing import Any
+
 
 pytest = importlib.import_module("pytest")
 

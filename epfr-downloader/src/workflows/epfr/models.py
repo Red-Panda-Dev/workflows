@@ -6,7 +6,7 @@ Unknown or unused API fields are silently ignored.
 """
 
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
@@ -271,7 +271,7 @@ class EpfrDividendEntry(BaseModel):
         return _normalize_amount_per_share(value)
 
     @model_validator(mode="after")
-    def validate_period_and_dates(self) -> "EpfrDividendEntry":
+    def validate_period_and_dates(self) -> EpfrDividendEntry:
         """Validate period numbering and date ordering business constraints."""
         if self.period_type == "annual" and self.period_number != 1:
             raise ValueError("period_number must be 1 for annual period_type")
@@ -551,7 +551,7 @@ class EpfrSharePayoutExportRow(BaseModel):
         return str(v)
 
     @model_validator(mode="after")
-    def validate_period_and_dates(self) -> "EpfrSharePayoutExportRow":
+    def validate_period_and_dates(self) -> EpfrSharePayoutExportRow:
         """Validate period numbering and date ordering business constraints."""
         if self.period_type == "annual" and self.period_number != 1:
             raise ValueError("period_number must be 1 for annual period_type")

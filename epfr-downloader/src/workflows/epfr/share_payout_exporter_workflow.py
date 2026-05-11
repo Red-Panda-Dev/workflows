@@ -7,27 +7,27 @@ The workflow is split into 4 activities for UI progress tracking:
 4. generate_share_payout_sql - Generate SQL INSERT statements from JSON output
 """
 
-from .share_payout_exporter import _make_csv_key
 from decimal import Decimal
-import json as json_mod
 import json
+import json as json_mod
 import logging
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from typing import Any
 
 import mistralai.workflows as workflows
 
 from . import config
-from .config import get_shares_source_data_csv, resolve_share_payout_export_input, SHARE_DIVIDENDS_SQL_FILENAME
+from .config import SHARE_DIVIDENDS_SQL_FILENAME, get_shares_source_data_csv, resolve_share_payout_export_input
 from .models import (
     EpfrSharePayoutExportInput,
     EpfrSharePayoutExportOutput,
     SharePayoutProcessResult,
     SharePayoutScanResult,
 )
-from .share_payout_exporter import load_share_reference_index
+from .share_payout_exporter import _make_csv_key, load_share_reference_index
+
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +329,7 @@ async def generate_share_payout_sql(
     # Generate SQL directly (inline the logic from generate_sql.py)
     if not json_path.exists():
         raise FileNotFoundError(f"JSON file not found: {json_path}")
+
 
     with json_path.open() as f:
         data: dict[str, list[dict]] = json_mod.load(f)

@@ -1,16 +1,17 @@
 """Auto-discover all workflow classes in src/workflows/ and start a worker."""
 
 import asyncio
+from collections.abc import Sequence
 import importlib
 import inspect
 import logging
 import pkgutil
 import sys
-from collections.abc import Sequence
 
 from dotenv import load_dotenv
 
 from workflows.epfr.config import get_dotenv_path
+
 
 load_dotenv(get_dotenv_path(), override=True)
 
@@ -18,6 +19,7 @@ import mistralai.workflows as workflows  # noqa: E402
 from mistralai.workflows.core.definition.workflow_definition import (  # noqa: E402
     get_workflow_definition,
 )
+
 
 logger = logging.getLogger(__name__)
 

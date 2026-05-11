@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+
 os.environ.pop("AGENT", None)
 
 import pytest

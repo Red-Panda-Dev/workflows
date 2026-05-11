@@ -6,17 +6,18 @@ No PDF support - this workflow does not use OCR.
 
 import asyncio
 import logging
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
 
+from docx import Document
 import docx2txt
 import openpyxl
 import xlrd
-from docx import Document
 
 from .markdown_cleanup import clean_markdown_text
+
 
 logger = logging.getLogger(__name__)
 

@@ -29,6 +29,11 @@ ignore = ["E501", "E712"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["workflows"]
+lines-after-imports = 2
+lines-between-types = 1
+combine-as-imports = true
+force-sort-within-sections = true
+split-on-trailing-comma = true
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

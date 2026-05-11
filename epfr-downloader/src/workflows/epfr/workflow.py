@@ -9,8 +9,8 @@ import asyncio
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 
 import aiohttp
 import mistralai.workflows as workflows
@@ -31,6 +31,7 @@ from .models import (
     EpfrWorkflowInput,
     EpfrWorkflowOutput,
 )
+
 
 logger = logging.getLogger(__name__)
 

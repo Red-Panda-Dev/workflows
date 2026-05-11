@@ -8,6 +8,7 @@ from io import BytesIO
 
 import olefile
 
+
 UNKNOWN_EXTENSION = ".bin"
 OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0"
 

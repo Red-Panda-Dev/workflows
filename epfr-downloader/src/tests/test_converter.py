@@ -4,12 +4,13 @@
 
 import asyncio
 import importlib
+from pathlib import Path
 import shutil
 import subprocess
-from pathlib import Path
 
 from workflows.epfr import converter
 from workflows.epfr.converter import _table_to_md, convert_all_files, convert_to_markdown, convert_unp_files
+
 
 pytest = importlib.import_module("pytest")
 
@@ -121,7 +122,7 @@ class TestConvertToMarkdown:
 
     def test_creates_md_file_with_correct_name(self, tmp_path: Path, monkeypatch):
         doc_file = tmp_path / "report.doc"
-        doc_file.write_bytes("Sample document text".encode("utf-8"))
+        doc_file.write_bytes(b"Sample document text")
 
         monkeypatch.setattr(converter, "_extract_doc", lambda _path: "Sample document text")
 
@@ -135,7 +136,7 @@ class TestConvertToMarkdown:
 
     def test_overwrite_true_replaces_existing(self, tmp_path: Path, monkeypatch):
         doc_file = tmp_path / "test.doc"
-        doc_file.write_bytes("New content".encode("utf-8"))
+        doc_file.write_bytes(b"New content")
         md_file = tmp_path / "test.md"
         md_file.write_text("Old markdown")
 
@@ -181,7 +182,7 @@ class TestConvertToMarkdownExtensions:
 
     def test_case_insensitive_extension(self, tmp_path: Path, monkeypatch):
         doc_file = tmp_path / "TEST.DOC"
-        doc_file.write_bytes("content".encode("utf-8"))
+        doc_file.write_bytes(b"content")
 
         monkeypatch.setattr(converter, "_extract_doc", lambda _path: "content")
 

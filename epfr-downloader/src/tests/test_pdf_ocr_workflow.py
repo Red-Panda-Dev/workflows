@@ -7,8 +7,8 @@ These tests verify the 3-activity split for UI progress tracking:
 """
 
 import json
-import tempfile
 from pathlib import Path
+import tempfile
 
 import pytest
 

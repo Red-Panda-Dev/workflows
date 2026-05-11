@@ -8,8 +8,8 @@ Handles two concerns:
 import asyncio
 import logging
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from urllib.parse import urlencode
 
 import aiohttp
@@ -17,6 +17,7 @@ import aiohttp
 from .config import load_epfr_config
 from .detector import build_filename
 from .models import EpfrApiResponse, EpfrRecord
+
 
 logger = logging.getLogger(__name__)
 

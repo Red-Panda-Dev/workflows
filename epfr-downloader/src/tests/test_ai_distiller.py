@@ -1,13 +1,14 @@
 """Tests for EPFR AI distiller normalization and workflow helpers."""
 
 import asyncio
-import json
-import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
+import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
 
 os.environ.pop("AGENT", None)
 
@@ -16,10 +17,10 @@ import pytest
 from workflows.epfr import ai_distiller, ai_distiller_workflow
 from workflows.epfr.ai_distiller import (
     AIDistiller,
-    _RawDividendEntry,
-    _RawExtraction,
     _load_prompt_template,
     _parse_iso_date,
+    _RawDividendEntry,
+    _RawExtraction,
     _safe_replace_year,
     _shift_months,
     _validate_and_correct_dates,
@@ -1681,7 +1682,7 @@ class TestEpfrAiDistillerWorkflow:
 
     def test_run_constructs_output_from_stats(self, monkeypatch, tmp_path):
         """Test workflow run constructs output from activity results."""
-        from workflows.epfr.models import AiDistillerScanResult, AiDistillerProcessResult
+        from workflows.epfr.models import AiDistillerProcessResult, AiDistillerScanResult
 
         # Create a minimal mapping file
         mapping_path = tmp_path / "mapping.json"
@@ -1790,7 +1791,7 @@ class TestEpfrAiDistillerWorkflow:
 
     def test_run_handles_missing_stats_keys(self, monkeypatch, tmp_path):
         """Test workflow run handles missing stats keys."""
-        from workflows.epfr.models import AiDistillerScanResult, AiDistillerProcessResult
+        from workflows.epfr.models import AiDistillerProcessResult, AiDistillerScanResult
 
         # Create a minimal mapping file
         mapping_path = tmp_path / "mapping.json"

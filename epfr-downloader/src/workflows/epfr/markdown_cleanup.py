@@ -2,6 +2,7 @@
 
 import re
 
+
 _IMAGE_ONLY_LINE_RE = re.compile(r"^\s*!\[[^\]]*\]\([^)]+\)\s*$")
 
 

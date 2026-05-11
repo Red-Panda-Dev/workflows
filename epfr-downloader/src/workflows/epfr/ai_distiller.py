@@ -23,18 +23,18 @@ Error handling:
 """
 
 import asyncio
+from datetime import UTC, date, datetime
+from decimal import Decimal
 import json
 import logging
 import os
+from pathlib import Path
 import random
 import tempfile
-from datetime import UTC, date, datetime
-from decimal import Decimal
-from pathlib import Path
 from typing import Any, cast
 
-from mistralai.workflows.plugins.mistralai import ChatCompletionRequest, ResponseFormat, mistralai_chat_parse
 from mistralai.extra import response_format_from_pydantic_model
+from mistralai.workflows.plugins.mistralai import ChatCompletionRequest, ResponseFormat, mistralai_chat_parse
 from pydantic import BaseModel, Field, ValidationError
 
 from .config import load_epfr_config
@@ -47,6 +47,7 @@ from .models import (
     PeriodType,
     ShareType,
 )
+
 
 logger = logging.getLogger(__name__)
 

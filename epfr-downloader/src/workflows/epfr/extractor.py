@@ -7,11 +7,12 @@ Detects OOXML documents (DOCX, XLSX, PPTX) disguised as ZIP and renames them.
 import asyncio
 import logging
 import os
+from pathlib import Path
 import shutil
 import tarfile
 import tempfile
 import zipfile
-from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 

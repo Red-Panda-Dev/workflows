@@ -31,3 +31,26 @@ testpaths = ["src/tests"]
 
 [tool.ruff]
 line-length = 120
+src = ["src"]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "D", "B", "UP", "C4", "SIM", "PIE", "T20"]
+ignore = ["E501", "E712"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["workflows"]
+lines-after-imports = 2
+lines-between-types = 1
+combine-as-imports = true
+force-sort-within-sections = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "D100"]
+"src/workflows/start.py" = ["E402"]
+"src/discover.py" = ["E402"]
+"src/migrations/**" = ["E101", "W", "E"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

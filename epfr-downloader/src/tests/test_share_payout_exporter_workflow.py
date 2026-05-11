@@ -743,7 +743,6 @@ class TestFinalizeSharePayoutExport:
     @pytest.mark.anyio
     async def test_writes_atomic_output_file(self, tmp_path):
         """Verifies tempfile.mkstemp + os.replace pattern is used."""
-
         output_dir = tmp_path / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -978,7 +977,6 @@ class TestFinalizeSharePayoutExport:
     @pytest.mark.anyio
     async def test_handles_cleanup_on_write_failure(self, tmp_path, monkeypatch):
         """Verifies tmp file is cleaned up on exception."""
-
         output_dir = tmp_path / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 

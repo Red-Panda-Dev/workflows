@@ -9,9 +9,9 @@ Two APIs coexist:
   - **Typed dataclass** — ``EpfrConfig`` / ``load_epfr_config()`` for new code.
 """
 
-import os
 from dataclasses import dataclass, replace
 from datetime import date
+import os
 from pathlib import Path
 from typing import TypedDict
 

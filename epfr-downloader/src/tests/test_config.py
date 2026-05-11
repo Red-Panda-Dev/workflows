@@ -42,7 +42,8 @@ def _clean_config(monkeypatch: pytest.MonkeyPatch):
 
 class TestTypedParsing:
     """load_epfr_config() must return an immutable dataclass with correctly
-    typed fields parsed from environment-variable strings."""
+    typed fields parsed from environment-variable strings.
+    """
 
     def test_int_field(self, monkeypatch: pytest.MonkeyPatch, _clean_config):
         mod = _clean_config
@@ -199,7 +200,8 @@ class TestMalformedValues:
 
 class TestMissingSecretBehavior:
     """MISTRAL_API_KEY missing → only fails when a secret-consuming path
-    requests it, NOT on import or load_epfr_config()."""
+    requests it, NOT on import or load_epfr_config().
+    """
 
     def test_import_without_secret(self, _clean_config):
         """Importing config must not raise even with no MISTRAL_API_KEY."""
@@ -216,7 +218,8 @@ class TestMissingSecretBehavior:
 
     def test_secret_required_on_execution_path(self, monkeypatch: pytest.MonkeyPatch, _clean_config):
         """A dedicated accessor (e.g. require_mistral_api_key) must raise
-        when the key is absent."""
+        when the key is absent.
+        """
         mod = _clean_config
         # Remove the key explicitly
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
@@ -240,7 +243,8 @@ class TestMissingSecretBehavior:
 
 class TestCwdStableDotenv:
     """get_dotenv_path() must resolve to the same absolute Path regardless
-    of the current working directory."""
+    of the current working directory.
+    """
 
     def test_dotenv_path_from_repo_root(self, _clean_config):
         mod = _clean_config
@@ -271,7 +275,8 @@ class TestCwdStableDotenv:
 
 class TestDefaultsMatchEnvExample:
     """All defaults returned by EPFR_DEFAULTS must match the canonical
-    .env.example values exactly."""
+    .env.example values exactly.
+    """
 
     def _defaults(self, _clean_config):
         return _clean_config.EPFR_DEFAULTS
