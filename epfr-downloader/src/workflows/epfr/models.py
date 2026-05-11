@@ -81,7 +81,10 @@ class EpfrWorkflowInput(BaseModel):
     date_from: str | None = Field(
         default=None, description="Start date filter in YYYY-MM-DD format (searchDateFrom parameter)"
     )
-    date_to: str = Field(description="End date filter in YYYY-MM-DD format (searchDateTo parameter)")
+    date_to: str = Field(
+        default_factory=lambda: date.today().isoformat(),
+        description="End date filter in YYYY-MM-DD format (searchDateTo parameter)",
+    )
     timeout: int | None = Field(default=None, ge=1, description="Per-request timeout in seconds (default: 60)")
     output_dir: str | None = Field(default=None, description="Root directory for downloaded files and mapping JSON")
 
