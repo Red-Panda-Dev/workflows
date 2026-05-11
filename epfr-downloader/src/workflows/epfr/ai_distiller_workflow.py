@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -137,7 +137,7 @@ async def scan_ai_distiller_files(input: EpfrAiDistillerInput) -> AiDistillerSca
 # =============================================================================
 
 
-@workflows.activity()
+@workflows.activity(start_to_close_timeout=timedelta(minutes=20))
 async def process_ai_distillation(
     scan_result: AiDistillerScanResult,
 ) -> AiDistillerProcessResult:
