@@ -106,6 +106,26 @@ class TestBuildPageUrl:
         assert "2025-06-15" in url1
         assert "2026-12-31" in url2
 
+    def test_with_date_to(self):
+        url = build_page_url(0, "2026-03-01", date_to="2026-06-30")
+        assert "searchDateFrom=2026-03-01" in url
+        assert "searchDateTo=2026-06-30" in url
+
+    def test_without_date_to(self):
+        url = build_page_url(0, "2026-03-01")
+        assert "searchDateFrom=2026-03-01" in url
+        assert "searchDateTo" not in url
+
+    def test_empty_date_to_omitted(self):
+        url = build_page_url(0, "2026-03-01", date_to="")
+        assert "searchDateTo" not in url
+
+    def test_both_dates_in_url(self):
+        url = build_page_url(5, "2025-01-01", date_to="2026-12-31")
+        assert "pageNo=5" in url
+        assert "searchDateFrom=2025-01-01" in url
+        assert "searchDateTo=2026-12-31" in url
+
 
 class TestBuildDownloadUrl:
     """Tests for build_download_url function."""

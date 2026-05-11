@@ -21,7 +21,7 @@ from .models import EpfrApiResponse, EpfrRecord
 logger = logging.getLogger(__name__)
 
 
-def build_page_url(page_no: int, date_from: str) -> str:
+def build_page_url(page_no: int, date_from: str, date_to: str | None = None) -> str:
     """Build the EPFR dividend disclosure search URL.
 
     Keeps EPFR's zero-based pagination and configured dividend search filters
@@ -30,6 +30,7 @@ def build_page_url(page_no: int, date_from: str) -> str:
     Args:
         page_no: Zero-based page number.
         date_from: Date filter in YYYY-MM-DD format.
+        date_to: Optional end date filter in YYYY-MM-DD format.
 
     Returns:
         Full URL string with query parameters.
@@ -44,6 +45,8 @@ def build_page_url(page_no: int, date_from: str) -> str:
         "searchDateFrom": date_from,
         "subCategoryId": cfg.default_sub_category_id,
     }
+    if date_to:
+        params["searchDateTo"] = date_to
     return f"{cfg.base_api_url}?{urlencode(params)}"
 
 
@@ -69,6 +72,7 @@ async def fetch_page(
     page_no: int,
     date_from: str,
     timeout: int = 60,
+    date_to: str | None = None,
 ) -> EpfrApiResponse:
     """Fetch one EPFR disclosure page with transient-error retries.
 
@@ -80,6 +84,7 @@ async def fetch_page(
         page_no: Zero-based page number.
         date_from: Date filter in YYYY-MM-DD format.
         timeout: Per-request timeout in seconds.
+        date_to: Optional end date filter in YYYY-MM-DD format.
 
     Returns:
         Parsed EpfrApiResponse.
@@ -88,7 +93,7 @@ async def fetch_page(
         RuntimeError: If all retry attempts fail.
 
     """
-    url = build_page_url(page_no, date_from)
+    url = build_page_url(page_no, date_from, date_to)
     cfg = load_epfr_config()
 
     for attempt in range(1, cfg.max_retries + 1):

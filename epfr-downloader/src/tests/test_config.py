@@ -418,6 +418,10 @@ class TestDefaultsMatchEnvExample:
         d = self._defaults(_clean_config)
         assert d.default_date_from == "2022-01-01"
 
+    def test_default_date_to(self, _clean_config):
+        d = self._defaults(_clean_config)
+        assert d.default_date_to == ""
+
     # --- Config is immutable ---
 
     def test_config_dataclass_is_frozen(self, monkeypatch: pytest.MonkeyPatch, _clean_config):
@@ -442,14 +446,16 @@ class TestInputResolution:
         resolved = mod.resolve_workflow_input()
         assert resolved["max_pages"] == 10
         assert resolved["date_from"] == "2022-01-01"
+        assert resolved["date_to"] == mod.date.today().isoformat()
         assert resolved["timeout"] == 60
         assert resolved["output_dir"] == "output"
 
     def test_workflow_input_explicit_wins(self, _clean_config):
         mod = _clean_config
-        resolved = mod.resolve_workflow_input(max_pages=5, date_from="2026-01-01")
+        resolved = mod.resolve_workflow_input(max_pages=5, date_from="2026-01-01", date_to="2026-06-30")
         assert resolved["max_pages"] == 5
         assert resolved["date_from"] == "2026-01-01"
+        assert resolved["date_to"] == "2026-06-30"
         assert resolved["timeout"] == 60
 
     def test_workflow_input_env_override(self, monkeypatch, _clean_config):
@@ -457,6 +463,12 @@ class TestInputResolution:
         monkeypatch.setenv("EPFR_MAX_PAGES", "3")
         resolved = mod.resolve_workflow_input()
         assert resolved["max_pages"] == 3
+
+    def test_workflow_input_date_to_env_override(self, monkeypatch, _clean_config):
+        mod = _clean_config
+        monkeypatch.setenv("EPFR_DEFAULT_DATE_TO", "2026-12-31")
+        resolved = mod.resolve_workflow_input()
+        assert resolved["date_to"] == "2026-12-31"
 
     def test_ai_distiller_input_defaults(self, _clean_config):
         mod = _clean_config

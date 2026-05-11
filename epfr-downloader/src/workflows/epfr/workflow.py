@@ -52,6 +52,7 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
     resolved = resolve_workflow_input(**input.model_dump(exclude_none=True))
     max_pages = resolved["max_pages"]
     date_from = resolved["date_from"]
+    date_to = resolved["date_to"]
     timeout = resolved["timeout"]
 
     cfg = load_epfr_config()
@@ -60,9 +61,9 @@ async def fetch_all_pages(input: EpfrWorkflowInput) -> list[EpfrRecord]:
 
     async with aiohttp.ClientSession() as session:
         for page_no in range(cfg.first_page_no, cfg.first_page_no + max_pages):
-            logger.info("Fetching page %d (date_from=%s)", page_no, date_from)
+            logger.info("Fetching page %d (date_from=%s, date_to=%s)", page_no, date_from, date_to)
 
-            response = await fetch_page(session, page_no, date_from, timeout)
+            response = await fetch_page(session, page_no, date_from, timeout, date_to=date_to)
 
             records = response.content
             all_records.extend(records)

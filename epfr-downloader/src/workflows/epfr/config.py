@@ -11,6 +11,7 @@ Two APIs coexist:
 
 import os
 from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 from typing import TypedDict
 
@@ -20,6 +21,7 @@ class ResolvedWorkflowInput(TypedDict):
 
     max_pages: int
     date_from: str
+    date_to: str
     timeout: int
     output_dir: str
 
@@ -95,6 +97,7 @@ class EpfrConfig:
     ai_distilled_filename: str
 
     default_date_from: str
+    default_date_to: str
     default_timeout: int
 
     share_payout_export_filename: str
@@ -140,6 +143,7 @@ EPFR_DEFAULTS = EpfrConfig(
     mapping_filename="unp_file_mapping.json",
     ai_distilled_filename="ai_distilled_dividends.json",
     default_date_from="2022-01-01",
+    default_date_to="",
     default_timeout=60,
     share_payout_export_filename="share_payouts_by_unp.json",
     cleanup_source=True,
@@ -182,6 +186,7 @@ _ENV_FIELDS: list[tuple[str, type, str, str | None]] = [
     ("mapping_filename", str, "EPFR_MAPPING_FILENAME", None),
     ("ai_distilled_filename", str, "EPFR_AI_DISTILLED_FILENAME", None),
     ("default_date_from", str, "EPFR_DEFAULT_DATE_FROM", None),
+    ("default_date_to", str, "EPFR_DEFAULT_DATE_TO", None),
     ("default_timeout", int, "EPFR_DEFAULT_TIMEOUT", "positive_int"),
     ("share_payout_export_filename", str, "EPFR_SHARE_PAYOUT_EXPORT_FILENAME", None),
     ("cleanup_source", bool, "EPFR_CLEANUP_SOURCE", "bool"),
@@ -262,14 +267,17 @@ def require_mistral_api_key(cfg: EpfrConfig) -> str:
 def resolve_workflow_input(
     max_pages: int | None = None,
     date_from: str | None = None,
+    date_to: str | None = None,
     timeout: int | None = None,
     output_dir: str | None = None,
 ) -> ResolvedWorkflowInput:
     """Resolve EpfrWorkflowInput kwargs from env config when omitted."""
     cfg = load_epfr_config()
+    resolved_date_to = date_to if date_to is not None else (cfg.default_date_to or date.today().isoformat())
     return {
         "max_pages": max_pages if max_pages is not None else cfg.max_pages,
         "date_from": date_from if date_from is not None else cfg.default_date_from,
+        "date_to": resolved_date_to,
         "timeout": timeout if timeout is not None else cfg.default_timeout,
         "output_dir": output_dir if output_dir is not None else str(cfg.output_dir),
     }
@@ -357,6 +365,7 @@ MAPPING_FILENAME: str = EPFR_DEFAULTS.mapping_filename
 AI_DISTILLED_FILENAME: str = EPFR_DEFAULTS.ai_distilled_filename
 FIRST_PAGE_NO: int = EPFR_DEFAULTS.first_page_no
 PAGE_DELAY: float = EPFR_DEFAULTS.page_delay
+DEFAULT_DATE_TO: str = EPFR_DEFAULTS.default_date_to
 SHARE_PAYOUT_EXPORT_WORKFLOW_NAME = "epfr-share-payout-exporter"
 SHARE_PAYOUT_EXPORT_FILENAME: str = EPFR_DEFAULTS.share_payout_export_filename
 SERVER_URL: str = EPFR_DEFAULTS.server_url
