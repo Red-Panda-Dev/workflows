@@ -7,6 +7,9 @@ The workflow is split into 4 activities for UI progress tracking:
 4. generate_share_payout_sql - Generate SQL INSERT statements from JSON output
 """
 
+from .share_payout_exporter import _make_csv_key
+from decimal import Decimal
+import json as json_mod
 import json
 import logging
 import os
@@ -127,8 +130,6 @@ async def process_share_payout_matching(
     samples_autofilled: list[dict] = []
     samples_file_errors: list[dict] = []
 
-    from .share_payout_exporter import _make_csv_key
-
     known_unps: set[str] = csv_stats["known_unps"]
     ambiguous_keys: set[str] = csv_stats["ambiguous_keys"]
 
@@ -177,8 +178,6 @@ async def process_share_payout_matching(
                                 {"unp": unp_str, "share_type": share_type, "file_id": file_id}
                             )
                     continue
-
-                from decimal import Decimal
 
                 payouts.append(
                     {
@@ -330,8 +329,6 @@ async def generate_share_payout_sql(
     # Generate SQL directly (inline the logic from generate_sql.py)
     if not json_path.exists():
         raise FileNotFoundError(f"JSON file not found: {json_path}")
-
-    import json as json_mod
 
     with json_path.open() as f:
         data: dict[str, list[dict]] = json_mod.load(f)
