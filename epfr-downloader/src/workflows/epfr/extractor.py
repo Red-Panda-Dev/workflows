@@ -109,20 +109,14 @@ def extract_tar(archive_path: Path, extract_dir: Path) -> tuple[int, list[str]]:
 
     """
     name_lower = str(archive_path).lower()
-
-    if name_lower.endswith(".tar.gz") or name_lower.endswith(".tgz") or name_lower.endswith(".gz"):
-        tf = tarfile.open(archive_path, "r:gz")
-    else:
-        tf = tarfile.open(archive_path, "r")
+    mode = "r:gz" if name_lower.endswith((".tar.gz", ".tgz", ".gz")) else "r"
 
     extracted_files: list[str] = []
-    try:
+    with tarfile.open(archive_path, mode) as tf:
         for member in tf.getmembers():
             if member.isfile():
                 tf.extract(member, extract_dir)
                 extracted_files.append(member.name)
-    finally:
-        tf.close()
     return len(extracted_files), extracted_files
 
 

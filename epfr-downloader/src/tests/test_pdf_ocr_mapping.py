@@ -32,6 +32,7 @@ pytest = importlib.import_module("pytest")
 
 @pytest.fixture()
 def anyio_backend():
+    """Return the anyio backend for async tests."""
     return "asyncio"
 
 
@@ -43,6 +44,7 @@ def _make_package_module(name: str) -> types.ModuleType:
 
 @pytest.fixture()
 def pdf_ocr_module(monkeypatch) -> Iterator[types.ModuleType]:
+    """Create a mocked pdf_ocr module for testing."""
     target_module_name = "workflows.epfr.pdf_ocr"
     original_pdf_ocr = sys.modules.pop(target_module_name, None)
 

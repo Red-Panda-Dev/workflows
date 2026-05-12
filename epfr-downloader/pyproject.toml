@@ -51,6 +51,7 @@ split-on-trailing-comma = true
 "src/workflows/start.py" = ["E402"]
 "src/discover.py" = ["E402"]
 "src/migrations/**" = ["E101", "W", "E"]
+"src/tests/**" = ["D101", "D102", "D103", "D105", "D107"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

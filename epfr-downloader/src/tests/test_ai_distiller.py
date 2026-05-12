@@ -1248,16 +1248,16 @@ class TestRunAiDistillationIntegration:
         monkeypatch.setattr(ai_distiller, "AIDistiller", FakeDistiller)
         monkeypatch.setattr(ai_distiller, "datetime", _FixedNowDateTime)
 
-        defaults = dict(
-            output_dir=str(tmp_path),
-            mapping_filename="unp_file_mapping.json",
-            output_filename="ai_distilled_dividends.json",
-            model_name="fake",
-            temperature=0.0,
-            max_retries=2,
-            file_delay_seconds=0.0,
-            unps=None,
-        )
+        defaults = {
+            "output_dir": str(tmp_path),
+            "mapping_filename": "unp_file_mapping.json",
+            "output_filename": "ai_distilled_dividends.json",
+            "model_name": "fake",
+            "temperature": 0.0,
+            "max_retries": 2,
+            "file_delay_seconds": 0.0,
+            "unps": None,
+        }
         defaults.update(kwargs)
         return asyncio.run(ai_distiller.run_ai_distillation(EpfrAiDistillerInput(**defaults)))
 

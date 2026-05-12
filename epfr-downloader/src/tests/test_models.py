@@ -410,16 +410,16 @@ class TestEpfrSharePayoutExportRow:
     """Tests for the DB-ready export row model."""
 
     def _make_row(self, **overrides):
-        defaults = dict(
-            share_uuid="abc-123",
-            period_year=2026,
-            period_type="quarterly",
-            period_number=1,
-            amount_per_share=Decimal("46.73"),
-            decision_date=date(2026, 5, 4),
-            record_date=date(2026, 5, 3),
-            payment_date=date(2026, 5, 10),
-        )
+        defaults = {
+            "share_uuid": "abc-123",
+            "period_year": 2026,
+            "period_type": "quarterly",
+            "period_number": 1,
+            "amount_per_share": Decimal("46.73"),
+            "decision_date": date(2026, 5, 4),
+            "record_date": date(2026, 5, 3),
+            "payment_date": date(2026, 5, 10),
+        }
         defaults.update(overrides)
         return EpfrSharePayoutExportRow.model_validate(defaults)
 

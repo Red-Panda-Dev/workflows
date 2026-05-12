@@ -275,7 +275,7 @@ async def process_pdf_ocr(
         tasks: list[asyncio.Task] = []
         item_indexes: list[tuple[int, int]] = []  # (index_in_items_list, file_index)
 
-        for idx_in_list, (orig_idx, item) in enumerate(items):
+        for idx_in_list, (_, item) in enumerate(items):
 
             async def _process_with_limit(
                 u: str, i: PdfOcrWorkItem

@@ -330,7 +330,6 @@ async def generate_share_payout_sql(
     if not json_path.exists():
         raise FileNotFoundError(f"JSON file not found: {json_path}")
 
-
     with json_path.open() as f:
         data: dict[str, list[dict]] = json_mod.load(f)
 

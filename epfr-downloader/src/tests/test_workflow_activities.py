@@ -31,6 +31,7 @@ from workflows.epfr.workflow import (
 
 @pytest.fixture()
 def anyio_backend():
+    """Return the anyio backend for async tests."""
     return "asyncio"
 
 

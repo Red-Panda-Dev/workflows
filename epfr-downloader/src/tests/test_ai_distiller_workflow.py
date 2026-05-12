@@ -316,7 +316,7 @@ class TestProcessAiDistillation:
         assert len(result.failed_files) == 2
 
         # Check each result has FAILED status
-        for key, file_result in result.results.items():
+        for _, file_result in result.results.items():
             assert file_result.status == "FAILED"
             assert file_result.error is not None
             assert "Markdown file not found" in file_result.error
@@ -390,7 +390,7 @@ class TestProcessAiDistillation:
         assert result.failed == 0
         assert len(result.results) == 2
 
-        for key, file_result in result.results.items():
+        for _, file_result in result.results.items():
             assert file_result.status == "SUCCESS"
             assert file_result.has_dividends is False
             assert file_result.ai_comment == "Test comment"
