@@ -1,9 +1,10 @@
 """Tests for EPFR Share Payout Exporter workflow activities.
 
-This module tests the 3 split activities in share_payout_exporter_workflow.py:
+This module tests the 4 split activities in share_payout_exporter_workflow.py:
 1. scan_share_payout_export - Load CSV index and distilled JSON
 2. process_share_payout_matching - Match dividends against CSV index
 3. finalize_share_payout_export - Save export JSON output
+4. generate_share_payout_sql - Generate SQL INSERT statements from JSON output
 
 These tests validate the workflow activities independently, enabling:
 - Granular progress tracking in Mistral Workflows UI
@@ -12,7 +13,12 @@ These tests validate the workflow activities independently, enabling:
 """
 
 import json
+import os
 from unittest.mock import patch
+
+
+os.environ.pop("AGENT", None)
+
 
 import pytest
 
@@ -23,6 +29,7 @@ from workflows.epfr.models import (
 )
 from workflows.epfr.share_payout_exporter_workflow import (
     finalize_share_payout_export,
+    generate_share_payout_sql,
     process_share_payout_matching,
     scan_share_payout_export,
 )
@@ -1019,3 +1026,299 @@ class TestFinalizeSharePayoutExport:
                 await finalize_share_payout_export(scan_result, process_result)
 
             assert "Failed to save export" in str(exc_info.value)
+
+
+# =============================================================================
+# TestGenerateSharePayoutSql - Activity 4 Tests
+# =============================================================================
+
+
+def _write_export_json(tmp_path, data):
+    json_path = tmp_path / "share_payouts_by_unp.json"
+    json_path.write_text(json.dumps(data), encoding="utf-8")
+    return json_path
+
+
+def _make_scan_result(tmp_path):
+    return SharePayoutScanResult(
+        csv_path=str(tmp_path / "shares.csv"),
+        csv_index={},
+        csv_stats={"ambiguous_share_kind": 0, "known_unps": set(), "ambiguous_keys": set()},
+        distilled_path=str(tmp_path / "ai_distilled_dividends.json"),
+        distilled_data={},
+        output_dir=str(tmp_path),
+        output_filename="share_payouts_by_unp.json",
+    )
+
+
+class TestGenerateSharePayoutSql:
+    """Test Activity 4: generate_share_payout_sql.
+
+    This activity generates SQL INSERT statements from the exported JSON.
+    """
+
+    @pytest.mark.anyio
+    async def test_generates_sql_from_export_json(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-common-1",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": "2026-01-10",
+                    "payment_date": "2026-02-15",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        result = await generate_share_payout_sql(scan_result, {})
+
+        assert "sql_path" in result
+        assert "sql_records" in result
+        assert result["sql_records"] == 1
+
+        sql_path = tmp_path / "share_dividends_insert.sql"
+        assert sql_path.exists()
+
+        sql_text = sql_path.read_text(encoding="utf-8")
+        assert "INSERT INTO public.share_dividend" in sql_text
+        assert "uuid-common-1" in sql_text
+        assert "ON CONFLICT DO NOTHING" in sql_text
+
+    @pytest.mark.anyio
+    async def test_sql_values_row_format(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-abc",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": "2026-01-10",
+                    "payment_date": "2026-02-15",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        await generate_share_payout_sql(scan_result, {})
+
+        sql_text = (tmp_path / "share_dividends_insert.sql").read_text(encoding="utf-8")
+        values_line = [line for line in sql_text.splitlines() if "uuid-abc" in line][0]
+
+        assert "'uuid-abc'" in values_line
+        assert "'annual'" in values_line
+        assert "'2026-01-15'" in values_line
+        assert "'2026-01-10'" in values_line
+        assert "'2026-02-15'" in values_line
+        assert "NOW(), NOW(), TRUE)" in values_line
+
+    @pytest.mark.anyio
+    async def test_deduplicates_identical_records(self, tmp_path):
+        record = {
+            "share_uuid": "uuid-dup",
+            "period_year": 2026,
+            "period_type": "annual",
+            "period_number": 1,
+            "amount_per_share": "0.50",
+            "decision_date": "2026-01-15",
+            "record_date": "2026-01-10",
+            "payment_date": "2026-02-15",
+        }
+        export_data = {"100000001": [record], "200000002": [record]}
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        result = await generate_share_payout_sql(scan_result, {})
+
+        assert result["sql_records"] == 1
+
+        sql_text = (tmp_path / "share_dividends_insert.sql").read_text(encoding="utf-8")
+        values_lines = [line for line in sql_text.splitlines() if "uuid-dup" in line]
+        assert len(values_lines) == 1
+
+    @pytest.mark.anyio
+    async def test_keeps_different_records(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-a",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": "2026-01-10",
+                    "payment_date": "2026-02-15",
+                },
+            ],
+            "200000002": [
+                {
+                    "share_uuid": "uuid-b",
+                    "period_year": 2025,
+                    "period_type": "quarterly",
+                    "period_number": 2,
+                    "amount_per_share": "1.00",
+                    "decision_date": "2025-06-01",
+                    "record_date": "2025-05-15",
+                    "payment_date": "2025-07-01",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        result = await generate_share_payout_sql(scan_result, {})
+
+        assert result["sql_records"] == 2
+
+        sql_text = (tmp_path / "share_dividends_insert.sql").read_text(encoding="utf-8")
+        assert "uuid-a" in sql_text
+        assert "uuid-b" in sql_text
+
+    @pytest.mark.anyio
+    async def test_handles_null_values(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-null",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": None,
+                    "payment_date": "2026-02-15",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        result = await generate_share_payout_sql(scan_result, {})
+
+        assert result["sql_records"] == 1
+
+        sql_text = (tmp_path / "share_dividends_insert.sql").read_text(encoding="utf-8")
+        values_line = [line for line in sql_text.splitlines() if "uuid-null" in line][0]
+        assert "NULL" in values_line
+
+    @pytest.mark.anyio
+    async def test_handles_empty_export_json(self, tmp_path):
+        _write_export_json(tmp_path, {})
+        scan_result = _make_scan_result(tmp_path)
+
+        result = await generate_share_payout_sql(scan_result, {})
+
+        assert result["sql_records"] == 0
+
+        sql_path = tmp_path / "share_dividends_insert.sql"
+        assert sql_path.exists()
+
+        sql_text = sql_path.read_text(encoding="utf-8")
+        assert "INSERT INTO public.share_dividend" in sql_text
+        assert "ON CONFLICT DO NOTHING" in sql_text
+
+        values_lines = [line for line in sql_text.splitlines() if line.strip().startswith("(")]
+        assert len(values_lines) == 0
+
+    @pytest.mark.anyio
+    async def test_sql_file_written_atomically(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-atomic",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": "2026-01-10",
+                    "payment_date": "2026-02-15",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        await generate_share_payout_sql(scan_result, {})
+
+        temp_files = [f for f in tmp_path.iterdir() if f.suffix == ".sql" and f.name.startswith("tmp")]
+        assert len(temp_files) == 0
+
+        sql_path = tmp_path / "share_dividends_insert.sql"
+        assert sql_path.exists()
+
+    @pytest.mark.anyio
+    async def test_raises_file_not_found_for_missing_json(self, tmp_path):
+        scan_result = _make_scan_result(tmp_path)
+
+        with pytest.raises(FileNotFoundError) as exc_info:
+            await generate_share_payout_sql(scan_result, {})
+
+        assert "JSON file not found" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_handles_write_failure(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-fail",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": "2026-01-10",
+                    "payment_date": "2026-02-15",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        def failing_replace(src, dst):
+            raise OSError("Simulated write failure")
+
+        with (
+            patch("workflows.epfr.share_payout_exporter_workflow.os.replace", failing_replace),
+            patch("workflows.epfr.share_payout_exporter_workflow.os.path.exists", return_value=True),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                await generate_share_payout_sql(scan_result, {})
+
+            assert "Failed to write SQL file" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_sql_header_comments(self, tmp_path):
+        export_data = {
+            "100000001": [
+                {
+                    "share_uuid": "uuid-hdr",
+                    "period_year": 2026,
+                    "period_type": "annual",
+                    "period_number": 1,
+                    "amount_per_share": "0.50",
+                    "decision_date": "2026-01-15",
+                    "record_date": "2026-01-10",
+                    "payment_date": "2026-02-15",
+                },
+            ],
+        }
+        _write_export_json(tmp_path, export_data)
+        scan_result = _make_scan_result(tmp_path)
+
+        await generate_share_payout_sql(scan_result, {})
+
+        sql_text = (tmp_path / "share_dividends_insert.sql").read_text(encoding="utf-8")
+        lines = sql_text.splitlines()
+        assert lines[0] == "-- Generated from share_payouts_by_unp.json"
+        assert lines[1] == "-- Total: 1 unique records"
