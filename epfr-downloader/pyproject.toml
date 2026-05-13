@@ -2,7 +2,7 @@
 name = "epfr-downloader"
 version = "0.1.0"
 description = "Mistral Workflow to download dividend disclosure files from epfr.gov.by"
-requires-python = "==3.14.3"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "mistralai-workflows==3.1.1",
     "mistralai-workflows-plugins-mistralai==3.1.1",
