@@ -138,7 +138,7 @@ async def scan_ai_distiller_files(input: EpfrAiDistillerInput) -> AiDistillerSca
 # =============================================================================
 
 
-@workflows.activity(start_to_close_timeout=timedelta(minutes=20))
+@workflows.activity(start_to_close_timeout=timedelta(hours=2))
 async def process_ai_distillation(
     scan_result: AiDistillerScanResult,
 ) -> AiDistillerProcessResult:
