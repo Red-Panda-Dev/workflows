@@ -1,0 +1,9 @@
+#!/bin/bash
+# Wrapper for uv that automatically adds --active flag
+# This ensures uv always uses the currently active virtual environment
+
+# Hardcoded path to the real uv binary
+REAL_UV="/home/homer/.local/bin/uv"
+
+# Execute uv with --active flag (must come before the subcommand)
+exec "$REAL_UV" --active "$@"
