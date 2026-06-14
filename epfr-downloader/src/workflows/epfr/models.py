@@ -99,23 +99,23 @@ class EpfrWorkflowOutput(BaseModel):
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
-class EpfrPdfOcrInput(BaseModel):
-    """Configure the separate EPFR PDF OCR workflow execution."""
+class EpfrOcrInput(BaseModel):
+    """Configure the EPFR OCR workflow execution (supports PDF, PNG, JPG, JPEG)."""
 
     output_dir: str | None = Field(default=None, description="Root directory containing UNP folders and mapping JSON")
     mapping_filename: str | None = Field(default=None, description="Mapping filename inside output_dir")
     overwrite: bool = Field(default=True, description="If True, overwrite existing markdown files")
     cleanup_source: bool | None = Field(
-        default=None, description="If True, remove source PDF after successful OCR conversion"
+        default=None, description="If True, remove source files after successful OCR conversion"
     )
     unps: list[str] | None = Field(default=None, description="Optional list of UNPs to process; all UNPs if omitted")
 
 
-class EpfrPdfOcrOutput(BaseModel):
+class EpfrOcrOutput(BaseModel):
     """Report OCR workflow totals, failures, cleanup, and raw stats."""
 
     mapping_path: str = ""
-    total_pdf_entries: int = 0
+    total_ocr_entries: int = 0
     total_successful: int = 0
     total_failed: int = 0
     total_skipped: int = 0
@@ -124,21 +124,27 @@ class EpfrPdfOcrOutput(BaseModel):
     stats: dict[str, Any] = Field(default_factory=dict)
 
 
-# PDF OCR Workflow Internal Models
+# Backward compatibility aliases
+EpfrPdfOcrInput = EpfrOcrInput
+EpfrPdfOcrOutput = EpfrOcrOutput
+
+
+# OCR Workflow Internal Models
 # These models support the 3-activity split for UI progress tracking
+# Supports PDF, PNG, JPG, JPEG files
 
 
-class PdfOcrWorkItem(BaseModel):
-    """Represents a single PDF file to be OCR'd.
+class OcrWorkItem(BaseModel):
+    """Represents a single file to be OCR'd (PDF, PNG, JPG, JPEG).
 
-    Used by the scan_pdf_entries activity to pass work items to the
-    process_pdf_ocr activity.
+    Used by the scan_ocr_entries activity to pass work items to the
+    process_ocr_files activity.
 
     Attributes:
         unp: Company tax identifier (folder name).
         file_index: Index of the file entry in the mapping[unp]["files"] list.
-        filename: Original PDF filename.
-        file_path: Full filesystem path to the PDF file.
+        filename: Original filename.
+        file_path: Full filesystem path to the file.
         entry: Original mapping entry dictionary for this file.
     """
 
@@ -149,17 +155,17 @@ class PdfOcrWorkItem(BaseModel):
     entry: dict[str, Any]
 
 
-class PdfOcrScanResult(BaseModel):
-    """Result of scanning the mapping file for PDF entries.
+class OcrScanResult(BaseModel):
+    """Result of scanning the mapping file for OCR-able entries.
 
-    Output of the scan_pdf_entries activity and input to process_pdf_ocr.
+    Output of the scan_ocr_entries activity and input to process_ocr_files.
 
     Attributes:
         mapping_path: Absolute path to the mapping JSON file.
         mapping_raw: Full mapping dictionary for downstream processing.
         total_unps_scanned: Number of UNP entries scanned.
-        total_pdf_entries: Total count of PDF files found.
-        work_items: List of PDF files that need OCR processing.
+        total_ocr_entries: Total count of OCR-able files found.
+        work_items: List of files that need OCR processing.
         by_unp: Per-UNP statistics from the scan phase.
         output_dir: Resolved output directory path.
         mapping_filename: Resolved mapping filename.
@@ -169,26 +175,26 @@ class PdfOcrScanResult(BaseModel):
     mapping_path: str
     mapping_raw: dict[str, Any]
     total_unps_scanned: int
-    total_pdf_entries: int
-    work_items: list[PdfOcrWorkItem]
+    total_ocr_entries: int
+    work_items: list[OcrWorkItem]
     by_unp: dict[str, dict[str, Any]]
     output_dir: str
     mapping_filename: str
     cleanup_source: bool | None = None
 
 
-class PdfOcrFileResult(BaseModel):
-    """Result of OCR'ing a single PDF file.
+class OcrFileResult(BaseModel):
+    """Result of OCR'ing a single file (PDF, PNG, JPG, JPEG).
 
-    Captures the outcome of processing one PDF entry.
+    Captures the outcome of processing one file entry.
 
     Attributes:
         unp: Company tax identifier.
         file_index: Index in the mapping[unp]["files"] list.
         status: Processing result - SUCCESS, FAILED, or SKIPPED.
-        original_filename: Original PDF filename.
+        original_filename: Original filename.
         new_filename: Markdown filename if successful, None otherwise.
-        source_path: Full path to the source PDF file.
+        source_path: Full path to the source file.
         error: Error message if status is FAILED or SKIPPED.
         converted_from: Value for the converted_from field in updated mapping.
     """
@@ -203,30 +209,37 @@ class PdfOcrFileResult(BaseModel):
     converted_from: str | None = None
 
 
-class PdfOcrProcessResult(BaseModel):
+class OcrProcessResult(BaseModel):
     """Result of the OCR processing phase.
 
-    Output of the process_pdf_ocr activity and input to finalize_ocr_mapping.
+    Output of the process_ocr_files activity and input to finalize_ocr_mapping.
 
     Attributes:
-        updated_mapping: Mapping dict with PDF entries updated to .md.
+        updated_mapping: Mapping dict with OCR entries updated to .md.
         results: Per-file results from OCR processing.
         total_successful: Count of successfully OCR'd files.
         total_failed: Count of failed OCR attempts.
         total_skipped: Count of skipped files (already exists, etc.).
-        failed_files: List of paths to failed PDF files.
-        skipped_files: List of paths to skipped PDF files.
-        cleaned_up_files: List of paths to PDFs deleted after successful OCR.
+        failed_files: List of paths to failed files.
+        skipped_files: List of paths to skipped files.
+        cleaned_up_files: List of paths to files deleted after successful OCR.
     """
 
     updated_mapping: dict[str, Any]
-    results: list[PdfOcrFileResult]
+    results: list[OcrFileResult]
     total_successful: int
     total_failed: int
     total_skipped: int
     failed_files: list[str]
     skipped_files: list[str]
     cleaned_up_files: list[str]
+
+
+# Backward compatibility aliases for PDF OCR
+PdfOcrWorkItem = OcrWorkItem
+PdfOcrScanResult = OcrScanResult
+PdfOcrFileResult = OcrFileResult
+PdfOcrProcessResult = OcrProcessResult
 
 
 PeriodType = Literal["annual", "halfyear", "quarterly"]

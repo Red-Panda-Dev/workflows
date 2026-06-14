@@ -12,7 +12,7 @@ from typing import Any
 from mistralai.client.models import DocumentURLChunk
 from mistralai.workflows.plugins.mistralai import OCRRequest, mistralai_ocr as _mistralai_ocr
 
-from .config import load_epfr_config
+from .config import get_ocr_mime_type, load_epfr_config
 from .markdown_cleanup import clean_markdown_text
 
 
@@ -45,17 +45,17 @@ async def mistralai_ocr(request: Any) -> Any:
     return await _mistralai_ocr(request)
 
 
-async def ocr_pdf_to_markdown(
-    pdf_path: Path,
+async def ocr_file_to_markdown(
+    file_path: Path,
     overwrite: bool = True,
 ) -> tuple[bool, Path | None, str | None]:
-    """Convert one EPFR PDF disclosure to Markdown with OCR.
+    """Convert one EPFR file (PDF, PNG, JPG, JPEG) to Markdown with OCR.
 
-    Reads a downloaded PDF, submits it to Mistral OCR as a data URI, and writes
+    Reads a downloaded file, submits it to Mistral OCR as a data URI, and writes
     a sibling ``.md`` file used by the company mapping.
 
     Args:
-        pdf_path: Path to the downloaded PDF disclosure.
+        file_path: Path to the downloaded file (PDF, PNG, JPG, or JPEG).
         overwrite: Whether an existing Markdown file may be replaced.
 
     Returns:
@@ -63,102 +63,113 @@ async def ocr_pdf_to_markdown(
         or message when conversion is skipped or fails.
 
     """
-    md_path = pdf_path.with_suffix(".md")
-    logger.info(f"Starting OCR for PDF: {pdf_path}")
+    ext = file_path.suffix.lower()
+    md_path = file_path.with_suffix(".md")
+    logger.info(f"Starting OCR for file: {file_path}")
 
-    if not pdf_path.exists():
-        logger.warning(f"PDF not found, skipping OCR: {pdf_path}")
-        return (False, None, "PDF_NOT_FOUND")
+    # Validate extension
+    cfg = load_epfr_config()
+    if ext not in cfg.ocr_supported_extensions:
+        logger.warning(f"Unsupported extension for OCR, skipping: {file_path} (ext={ext})")
+        return (False, None, f"UNSUPPORTED_EXTENSION({ext})")
+
+    if not file_path.exists():
+        logger.warning(f"File not found, skipping OCR: {file_path}")
+        return (False, None, "FILE_NOT_FOUND")
 
     if md_path.exists() and not overwrite:
         logger.info(f"Markdown already exists and overwrite is disabled: {md_path}")
         return (False, md_path, "MD_ALREADY_EXISTS")
 
     try:
-        cfg = load_epfr_config()
-        raw_bytes = await asyncio.to_thread(pdf_path.read_bytes)
-        logger.debug(f"Read PDF bytes: path={pdf_path}, size={len(raw_bytes)}")
+        raw_bytes = await asyncio.to_thread(file_path.read_bytes)
+        logger.debug(f"Read file bytes: path={file_path}, size={len(raw_bytes)}")
         if len(raw_bytes) > cfg.max_pdf_size_bytes:
             logger.warning(
-                f"PDF exceeds max size and will not be OCRed: {pdf_path} ({len(raw_bytes)} > {cfg.max_pdf_size_bytes})"
+                f"File exceeds max size and will not be OCRed: {file_path} ({len(raw_bytes)} > {cfg.max_pdf_size_bytes})"
             )
-            return (False, None, f"PDF_TOO_LARGE({len(raw_bytes)} bytes)")
+            return (False, None, f"FILE_TOO_LARGE({len(raw_bytes)} bytes)")
 
+        # Use appropriate MIME type based on file extension
+        mime_type = get_ocr_mime_type(ext)
         b64 = base64.b64encode(raw_bytes).decode("ascii")
-        data_uri = f"data:application/pdf;base64,{b64}"
+        data_uri = f"data:{mime_type};base64,{b64}"
 
         request = {
             "model": cfg.ocr_model,
             "document_url": data_uri,
-            "document_name": pdf_path.name,
+            "document_name": file_path.name,
         }
-        logger.debug(f"Sending OCR request: model={cfg.ocr_model}, document={pdf_path.name}")
+        logger.debug(f"Sending OCR request: model={cfg.ocr_model}, document={file_path.name}")
         result = await mistralai_ocr(request)
         ocr_text = clean_markdown_text("\n\n".join(page.markdown for page in result.pages))
         logger.debug(f"OCR response received: pages={len(result.pages)}, chars={len(ocr_text)}")
 
         await asyncio.to_thread(md_path.write_text, ocr_text, "utf-8")
-        logger.info(f"OCR conversion successful: {pdf_path} -> {md_path}")
+        logger.info(f"OCR conversion successful: {file_path} -> {md_path}")
         return (True, md_path, None)
     except Exception as exc:
-        logger.error(f"OCR conversion failed for {pdf_path}: {type(exc).__name__}: {exc}")
+        logger.error(f"OCR conversion failed for {file_path}: {type(exc).__name__}: {exc}")
         return (False, None, f"{type(exc).__name__}: {exc}")
 
 
-async def _process_pdf_entry(
+async def _process_ocr_entry(
     unp: str,
     output_root: Path,
     entry: dict[str, Any],
     overwrite: bool,
 ) -> tuple[str, dict[str, Any], str, str | None]:
-    """Process a single mapping file entry when it references a PDF.
+    """Process a single mapping file entry when it references an OCR-able file.
 
     Args:
-        unp: Company tax identifier used to locate the PDF folder.
+        unp: Company tax identifier used to locate the file folder.
         output_root: Root directory containing UNP folders.
         entry: Mapping file entry to inspect and update.
         overwrite: Whether OCR may replace an existing Markdown file.
 
     Returns:
-        Tuple of status, updated mapping entry, source PDF path, and optional
+        Tuple of status, updated mapping entry, source file path, and optional
         error details.
 
     """
     filename = str(entry.get("filename", ""))
-    if not filename.lower().endswith(".pdf"):
-        return ("SKIP_NON_PDF", entry, "", None)
+    cfg = load_epfr_config()
 
-    pdf_path = output_root / unp / filename
-    success, md_path, err = await ocr_pdf_to_markdown(pdf_path, overwrite)
+    # Check if file is OCR-able
+    if not any(filename.lower().endswith(ext) for ext in cfg.ocr_supported_extensions):
+        return ("SKIP_NON_OCR", entry, "", None)
+
+    file_path = output_root / unp / filename
+    success, md_path, err = await ocr_file_to_markdown(file_path, overwrite)
 
     if not success:
         if err == "MD_ALREADY_EXISTS":
-            return ("SKIPPED", entry, str(pdf_path), err)
-        return ("FAILED", entry, str(pdf_path), err)
+            return ("SKIPPED", entry, str(file_path), err)
+        return ("FAILED", entry, str(file_path), err)
 
     updated = dict(entry)
     updated["filename"] = md_path.name if md_path else Path(filename).with_suffix(".md").name
     updated["converted_from"] = filename
-    return ("SUCCESS", updated, str(pdf_path), None)
+    return ("SUCCESS", updated, str(file_path), None)
 
 
-async def ocr_mapping_pdfs(
+async def ocr_mapping_files(
     output_root: Path,
     mapping_filename: str,
     overwrite: bool = True,
     cleanup_source: bool = True,
     unps: list[str] | None = None,
 ) -> dict:
-    """OCR all PDF entries referenced by the UNP mapping file.
+    """OCR all OCR-able entries (PDF, PNG, JPG, JPEG) referenced by the UNP mapping file.
 
-    Updates ``unp_file_mapping.json`` in place so successfully OCRed PDF files
+    Updates ``unp_file_mapping.json`` in place so successfully OCRed files
     become Markdown entries while preserving existing extraction lineage.
 
     Args:
         output_root: Root folder containing the mapping file and UNP folders.
         mapping_filename: Mapping JSON filename inside ``output_root``.
         overwrite: Whether existing Markdown files may be replaced.
-        cleanup_source: Whether source PDFs should be deleted after successful
+        cleanup_source: Whether source files should be deleted after successful
             Markdown creation.
         unps: Optional subset of company UNPs to process.
 
@@ -186,7 +197,7 @@ async def ocr_mapping_pdfs(
     stats: dict[str, Any] = {
         "mapping_path": str(mapping_path.resolve()),
         "total_unps_scanned": 0,
-        "total_pdf_entries": 0,
+        "total_ocr_entries": 0,
         "total_successful": 0,
         "total_failed": 0,
         "total_skipped": 0,
@@ -205,7 +216,7 @@ async def ocr_mapping_pdfs(
         if selected_unps is not None and unp not in selected_unps:
             continue
 
-        logger.info(f"Scanning UNP for PDF OCR: {unp}")
+        logger.info(f"Scanning UNP for OCR: {unp}")
 
         stats["total_unps_scanned"] = int(stats["total_unps_scanned"]) + 1
         files = company_data.get("files", [])
@@ -213,7 +224,7 @@ async def ocr_mapping_pdfs(
             continue
 
         stats["by_unp"][unp] = {
-            "pdf_entries": 0,
+            "ocr_entries": 0,
             "successful": 0,
             "failed": 0,
             "skipped": 0,
@@ -228,24 +239,26 @@ async def ocr_mapping_pdfs(
 
             safe_entry: dict[str, Any] = {str(k): v for k, v in entry_any.items()}
             filename = str(safe_entry.get("filename", ""))
-            if not filename.lower().endswith(".pdf"):
+
+            # Check if file is OCR-able
+            if not any(filename.lower().endswith(ext) for ext in cfg.ocr_supported_extensions):
                 continue
 
-            stats["total_pdf_entries"] = int(stats["total_pdf_entries"]) + 1
-            stats["by_unp"][unp]["pdf_entries"] += 1
+            stats["total_ocr_entries"] = int(stats["total_ocr_entries"]) + 1
+            stats["by_unp"][unp]["ocr_entries"] += 1
 
             async def _run_with_limit(u: str, e: dict[str, Any]) -> tuple[str, dict[str, Any], str, str | None]:
                 async with semaphore:
-                    return await _process_pdf_entry(u, output_root, e, overwrite)
+                    return await _process_ocr_entry(u, output_root, e, overwrite)
 
             tasks.append(asyncio.create_task(_run_with_limit(unp, safe_entry)))
             entry_indexes.append(idx)
 
         if not tasks:
-            logger.info(f"No PDF entries found for UNP: {unp}")
+            logger.info(f"No OCR-able entries found for UNP: {unp}")
             continue
 
-        logger.info(f"Submitting {len(tasks)} PDF OCR task(s) for UNP: {unp}")
+        logger.info(f"Submitting {len(tasks)} OCR task(s) for UNP: {unp}")
         results = await asyncio.gather(*tasks)
 
         for idx, result in zip(entry_indexes, results, strict=True):
@@ -271,9 +284,9 @@ async def ocr_mapping_pdfs(
                         try:
                             source.unlink()
                             stats["cleaned_up_files"].append(str(source))
-                            logger.info(f"Cleaned up source PDF after OCR: {source}")
+                            logger.info(f"Cleaned up source file after OCR: {source}")
                         except Exception as exc:
-                            logger.warning(f"Failed to cleanup source PDF {source}: {exc}")
+                            logger.warning(f"Failed to cleanup source file {source}: {exc}")
             elif status == "SKIPPED":
                 logger.info(f"OCR skipped for UNP {unp}: {source_path} ({err})")
                 stats["total_skipped"] = int(stats["total_skipped"]) + 1
@@ -303,8 +316,13 @@ async def ocr_mapping_pdfs(
         raise
 
     logger.info(
-        f"Mapping OCR pass complete: unps={stats['total_unps_scanned']}, pdf_entries={stats['total_pdf_entries']}, "
+        f"Mapping OCR pass complete: unps={stats['total_unps_scanned']}, ocr_entries={stats['total_ocr_entries']}, "
         f"successful={stats['total_successful']}, failed={stats['total_failed']}, skipped={stats['total_skipped']}"
     )
 
     return stats
+
+
+# Backward compatibility aliases
+ocr_pdf_to_markdown = ocr_file_to_markdown
+ocr_mapping_pdfs = ocr_mapping_files

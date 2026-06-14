@@ -18,37 +18,37 @@ import mistralai.workflows as workflows
 
 from .config import load_epfr_config, resolve_pdf_ocr_input
 from .models import (
-    EpfrPdfOcrInput,
-    EpfrPdfOcrOutput,
-    PdfOcrFileResult,
-    PdfOcrProcessResult,
-    PdfOcrScanResult,
-    PdfOcrWorkItem,
+    EpfrOcrInput,
+    EpfrOcrOutput,
+    OcrFileResult,
+    OcrProcessResult,
+    OcrScanResult,
+    OcrWorkItem,
 )
-from .pdf_ocr import ocr_pdf_to_markdown
+from .pdf_ocr import ocr_file_to_markdown
 
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Activity 1: Scan PDF Entries
+# Activity 1: Scan OCR Entries
 # =============================================================================
 
 
 @workflows.activity()
-async def scan_pdf_entries(input: EpfrPdfOcrInput) -> PdfOcrScanResult:
-    """Scan mapping file and identify all PDF entries for OCR.
+async def scan_ocr_entries(input: EpfrOcrInput) -> OcrScanResult:
+    """Scan mapping file and identify all OCR-able entries for OCR.
 
-    This is Step 1/3 of the PDF OCR workflow. It reads the UNP file mapping
-    JSON, filters by optional UNP list, and collects all PDF file entries
-    that need OCR conversion.
+    This is Step 1/3 of the OCR workflow. It reads the UNP file mapping
+    JSON, filters by optional UNP list, and collects all OCR-able file entries
+    (PDF, PNG, JPG, JPEG) that need OCR conversion.
 
     Args:
         input: OCR workflow input with output location and filters.
 
     Returns:
-        PdfOcrScanResult containing full mapping, work items, and discovery stats.
+        OcrScanResult containing full mapping, work items, and discovery stats.
 
     Raises:
         FileNotFoundError: If the mapping file does not exist.
@@ -65,15 +65,16 @@ async def scan_pdf_entries(input: EpfrPdfOcrInput) -> PdfOcrScanResult:
     if not mapping_path.exists():
         raise FileNotFoundError(f"Mapping file not found: {mapping_path}")
 
-    logger.info(f"Scanning mapping for PDF entries: {mapping_path}")
+    logger.info(f"Scanning mapping for OCR-able entries: {mapping_path}")
 
     mapping: dict[str, Any] = json.loads(mapping_path.read_text(encoding="utf-8"))
     selected_unps = set(input.unps) if input.unps else None
+    cfg = load_epfr_config()
 
-    work_items: list[PdfOcrWorkItem] = []
+    work_items: list[OcrWorkItem] = []
     by_unp: dict[str, dict[str, Any]] = {}
     total_unps_scanned = 0
-    total_pdf_entries = 0
+    total_ocr_entries = 0
 
     for unp, company_data_any in mapping.items():
         if selected_unps is not None and unp not in selected_unps:
@@ -85,7 +86,7 @@ async def scan_pdf_entries(input: EpfrPdfOcrInput) -> PdfOcrScanResult:
             continue
 
         total_unps_scanned += 1
-        by_unp[unp] = {"pdf_entries": 0}
+        by_unp[unp] = {"ocr_entries": 0}
 
         for idx, entry_any in enumerate(files):
             if not isinstance(entry_any, dict):
@@ -94,15 +95,16 @@ async def scan_pdf_entries(input: EpfrPdfOcrInput) -> PdfOcrScanResult:
             safe_entry: dict[str, Any] = {str(k): v for k, v in entry_any.items()}
             filename = str(safe_entry.get("filename", ""))
 
-            if not filename.lower().endswith(".pdf"):
+            # Check if file is OCR-able
+            if not any(filename.lower().endswith(ext) for ext in cfg.ocr_supported_extensions):
                 continue
 
-            by_unp[unp]["pdf_entries"] += 1
-            total_pdf_entries += 1
+            by_unp[unp]["ocr_entries"] += 1
+            total_ocr_entries += 1
 
             file_path = str(output_root / unp / filename)
             work_items.append(
-                PdfOcrWorkItem(
+                OcrWorkItem(
                     unp=unp,
                     file_index=idx,
                     filename=filename,
@@ -112,14 +114,14 @@ async def scan_pdf_entries(input: EpfrPdfOcrInput) -> PdfOcrScanResult:
             )
 
     logger.info(
-        f"Scan complete: {total_unps_scanned} UNPs, {total_pdf_entries} PDF entries, {len(work_items)} work items"
+        f"Scan complete: {total_unps_scanned} UNPs, {total_ocr_entries} OCR-able entries, {len(work_items)} work items"
     )
 
-    return PdfOcrScanResult(
+    return OcrScanResult(
         mapping_path=str(mapping_path.resolve()),
         mapping_raw=mapping,
         total_unps_scanned=total_unps_scanned,
-        total_pdf_entries=total_pdf_entries,
+        total_ocr_entries=total_ocr_entries,
         work_items=work_items,
         by_unp=by_unp,
         output_dir=resolved["output_dir"],
@@ -129,25 +131,25 @@ async def scan_pdf_entries(input: EpfrPdfOcrInput) -> PdfOcrScanResult:
 
 
 # =============================================================================
-# Activity 2: Process PDF OCR
+# Activity 2: Process OCR Files
 # =============================================================================
 
 
 async def _process_work_item(
     unp: str,
     output_root: Path,
-    item: PdfOcrWorkItem,
+    item: OcrWorkItem,
     overwrite: bool,
 ) -> tuple[int, int, str, dict[str, Any] | None, str | None, str | None]:
-    """Process a single PDF work item: OCR the PDF and return result tuple.
+    """Process a single OCR work item: OCR the file and return result tuple.
 
-    This helper function is used by process_pdf_ocr to process individual
-    PDF files within the semaphore-limited concurrency pool.
+    This helper function is used by process_ocr_files to process individual
+    files (PDF, PNG, JPG, JPEG) within the semaphore-limited concurrency pool.
 
     Args:
         unp: Company UNP identifier.
         output_root: Root output directory.
-        item: Work item containing PDF file details.
+        item: Work item containing file details.
         overwrite: Whether to overwrite existing .md files.
 
     Returns:
@@ -156,71 +158,71 @@ async def _process_work_item(
 
     """
     filename = item.filename
-    pdf_path = Path(item.file_path)
+    file_path = Path(item.file_path)
 
-    if not pdf_path.exists():
-        logger.warning(f"PDF not found, skipping: {pdf_path}")
-        return (0, item.file_index, "FAILED", None, str(pdf_path), "PDF_NOT_FOUND")
+    if not file_path.exists():
+        logger.warning(f"File not found, skipping: {file_path}")
+        return (0, item.file_index, "FAILED", None, str(file_path), "FILE_NOT_FOUND")
 
-    md_path = pdf_path.with_suffix(".md")
+    md_path = file_path.with_suffix(".md")
     if md_path.exists() and not overwrite:
         logger.info(f"Markdown already exists, skipping: {md_path}")
-        return (0, item.file_index, "SKIPPED", None, str(pdf_path), "MD_ALREADY_EXISTS")
+        return (0, item.file_index, "SKIPPED", None, str(file_path), "MD_ALREADY_EXISTS")
 
     try:
         cfg = load_epfr_config()
-        raw_bytes = await asyncio.to_thread(pdf_path.read_bytes)
-        logger.debug(f"Read PDF bytes: path={pdf_path}, size={len(raw_bytes)}")
+        raw_bytes = await asyncio.to_thread(file_path.read_bytes)
+        logger.debug(f"Read file bytes: path={file_path}, size={len(raw_bytes)}")
 
         if len(raw_bytes) > cfg.max_pdf_size_bytes:
-            logger.warning(f"PDF exceeds max size: {pdf_path} ({len(raw_bytes)} > {cfg.max_pdf_size_bytes})")
+            logger.warning(f"File exceeds max size: {file_path} ({len(raw_bytes)} > {cfg.max_pdf_size_bytes})")
             return (
                 0,
                 item.file_index,
                 "FAILED",
                 None,
-                str(pdf_path),
-                f"PDF_TOO_LARGE({len(raw_bytes)} bytes)",
+                str(file_path),
+                f"FILE_TOO_LARGE({len(raw_bytes)} bytes)",
             )
 
-        success, actual_md_path, err = await ocr_pdf_to_markdown(pdf_path, overwrite)
+        success, actual_md_path, err = await ocr_file_to_markdown(file_path, overwrite)
 
         if not success:
             if err == "MD_ALREADY_EXISTS":
-                return (0, item.file_index, "SKIPPED", None, str(pdf_path), err)
-            return (0, item.file_index, "FAILED", None, str(pdf_path), err)
+                return (0, item.file_index, "SKIPPED", None, str(file_path), err)
+            return (0, item.file_index, "FAILED", None, str(file_path), err)
 
         # Build updated entry for the mapping
         updated_entry = dict(item.entry)
         updated_entry["filename"] = actual_md_path.name if actual_md_path else Path(filename).with_suffix(".md").name
         updated_entry["converted_from"] = filename
 
-        return (0, item.file_index, "SUCCESS", updated_entry, str(pdf_path), None)
+        return (0, item.file_index, "SUCCESS", updated_entry, str(file_path), None)
 
     except Exception as exc:
-        logger.error(f"OCR failed for {pdf_path}: {type(exc).__name__}: {exc}")
-        return (0, item.file_index, "FAILED", None, str(pdf_path), f"{type(exc).__name__}: {exc}")
+        logger.error(f"OCR failed for {file_path}: {type(exc).__name__}: {exc}")
+        return (0, item.file_index, "FAILED", None, str(file_path), f"{type(exc).__name__}: {exc}")
 
 
 @workflows.activity()
-async def process_pdf_ocr(
+async def process_ocr_files(
     output_root: str,
-    scan_result: PdfOcrScanResult,
+    scan_result: OcrScanResult,
     overwrite: bool,
-) -> PdfOcrProcessResult:
-    """Perform OCR on all identified PDF entries.
+) -> OcrProcessResult:
+    """Perform OCR on all identified OCR-able entries.
 
-    This is Step 2/3 of the PDF OCR workflow. It takes the scan result,
-    processes all PDF files concurrently (with semaphore limit), and
+    This is Step 2/3 of the OCR workflow. It takes the scan result,
+    processes all OCR-able files concurrently (with semaphore limit), and
     returns the updated mapping with results.
 
     Args:
         output_root: Root directory path (string for serialization).
-        scan_result: Output from scan_pdf_entries activity.
+        scan_result: Output from scan_ocr_entries activity.
         overwrite: Whether to overwrite existing .md files.
 
     Returns:
-        PdfOcrProcessResult with updated mapping, per-file results, and stats.
+        OcrProcessResult with updated mapping, per-file results, and stats.
 
     """
     output_root_path = Path(output_root)
@@ -229,8 +231,8 @@ async def process_pdf_ocr(
     work_items = scan_result.work_items
 
     if not work_items:
-        logger.info("No PDF entries to process")
-        return PdfOcrProcessResult(
+        logger.info("No OCR-able entries to process")
+        return OcrProcessResult(
             updated_mapping=mapping,
             results=[],
             total_successful=0,
@@ -241,13 +243,13 @@ async def process_pdf_ocr(
             cleaned_up_files=[],
         )
 
-    logger.info(f"Starting OCR processing for {len(work_items)} PDF entries")
+    logger.info(f"Starting OCR processing for {len(work_items)} OCR-able entries")
 
     cfg = load_epfr_config()
     semaphore = asyncio.Semaphore(cfg.max_concurrent_ocr)
     logger.info(f"OCR concurrency limit: {cfg.max_concurrent_ocr}")
 
-    results: list[PdfOcrFileResult] = []
+    results: list[OcrFileResult] = []
     failed_files: list[str] = []
     skipped_files: list[str] = []
     cleaned_up_files: list[str] = []
@@ -256,7 +258,7 @@ async def process_pdf_ocr(
     total_skipped = 0
 
     # Group work items by UNP for processing
-    by_unp_items: dict[str, list[tuple[int, PdfOcrWorkItem]]] = {}
+    by_unp_items: dict[str, list[tuple[int, OcrWorkItem]]] = {}
     for idx, item in enumerate(work_items):
         if item.unp not in by_unp_items:
             by_unp_items[item.unp] = []
@@ -270,7 +272,7 @@ async def process_pdf_ocr(
         if not isinstance(files, list):
             files = []
 
-        logger.info(f"Processing {len(items)} PDF entries for UNP: {unp}")
+        logger.info(f"Processing {len(items)} OCR-able entries for UNP: {unp}")
 
         tasks: list[asyncio.Task] = []
         item_indexes: list[tuple[int, int]] = []  # (index_in_items_list, file_index)
@@ -278,7 +280,7 @@ async def process_pdf_ocr(
         for idx_in_list, (_, item) in enumerate(items):
 
             async def _process_with_limit(
-                u: str, i: PdfOcrWorkItem
+                u: str, i: OcrWorkItem
             ) -> tuple[int, int, str, dict[str, Any] | None, str | None, str | None]:
                 async with semaphore:
                     return await _process_work_item(u, output_root_path, i, overwrite)
@@ -297,7 +299,7 @@ async def process_pdf_ocr(
                 orig_filename = items[idx_in_list][1].filename
                 source_path = items[idx_in_list][1].file_path
                 results.append(
-                    PdfOcrFileResult(
+                    OcrFileResult(
                         unp=unp,
                         file_index=file_idx,
                         status="FAILED",
@@ -319,7 +321,7 @@ async def process_pdf_ocr(
                 files[file_idx] = updated_entry
                 total_successful += 1
                 results.append(
-                    PdfOcrFileResult(
+                    OcrFileResult(
                         unp=unp,
                         file_index=file_idx,
                         status="SUCCESS",
@@ -331,7 +333,7 @@ async def process_pdf_ocr(
                     )
                 )
 
-                # Cleanup source PDF immediately after successful OCR
+                # Cleanup source file immediately after successful OCR
                 if source_path:
                     source = Path(source_path)
                     md_exists = source.with_suffix(".md").exists()
@@ -339,14 +341,14 @@ async def process_pdf_ocr(
                         try:
                             source.unlink()
                             cleaned_up_files.append(str(source))
-                            logger.info(f"Cleaned up source PDF after OCR: {source}")
+                            logger.info(f"Cleaned up source file after OCR: {source}")
                         except Exception as exc:
-                            logger.warning(f"Failed to cleanup source PDF {source}: {exc}")
+                            logger.warning(f"Failed to cleanup source file {source}: {exc}")
 
             elif status == "SKIPPED":
                 total_skipped += 1
                 results.append(
-                    PdfOcrFileResult(
+                    OcrFileResult(
                         unp=unp,
                         file_index=file_idx,
                         status="SKIPPED",
@@ -363,7 +365,7 @@ async def process_pdf_ocr(
             elif status == "FAILED":
                 total_failed += 1
                 results.append(
-                    PdfOcrFileResult(
+                    OcrFileResult(
                         unp=unp,
                         file_index=file_idx,
                         status="FAILED",
@@ -381,7 +383,7 @@ async def process_pdf_ocr(
         f"OCR processing complete: {total_successful} successful, {total_failed} failed, {total_skipped} skipped"
     )
 
-    return PdfOcrProcessResult(
+    return OcrProcessResult(
         updated_mapping=mapping,
         results=results,
         total_successful=total_successful,
@@ -402,23 +404,23 @@ async def process_pdf_ocr(
 async def finalize_ocr_mapping(
     output_root: str,
     mapping_filename: str,
-    process_result: PdfOcrProcessResult,
+    process_result: OcrProcessResult,
     cleanup_source: bool,
 ) -> dict[str, Any]:
     """Save updated mapping after OCR processing.
 
-    This is Step 3/3 of the PDF OCR workflow. It performs the atomic write
-    of the updated mapping JSON file after all PDF OCR operations are complete.
+    This is Step 3/3 of the OCR workflow. It performs the atomic write
+    of the updated mapping JSON file after all OCR operations are complete.
 
     Args:
         output_root: Root directory path.
         mapping_filename: Name of the mapping JSON file.
-        process_result: Output from process_pdf_ocr activity.
-        cleanup_source: Whether source PDFs should be cleaned up (already
+        process_result: Output from process_ocr_files activity.
+        cleanup_source: Whether source files should be cleaned up (already
             done in process phase, but kept for API compatibility).
 
     Returns:
-        Final stats dictionary matching existing EpfrPdfOcrOutput structure.
+        Final stats dictionary matching existing EpfrOcrOutput structure.
 
     """
     output_root_path = Path(output_root)
@@ -448,7 +450,7 @@ async def finalize_ocr_mapping(
     stats: dict[str, Any] = {
         "mapping_path": str(mapping_path.resolve()),
         "total_unps_scanned": 0,
-        "total_pdf_entries": process_result.total_successful
+        "total_ocr_entries": process_result.total_successful
         + process_result.total_failed
         + process_result.total_skipped,
         "total_successful": process_result.total_successful,
@@ -466,14 +468,14 @@ async def finalize_ocr_mapping(
         unp = result.unp
         if unp not in by_unp:
             by_unp[unp] = {
-                "pdf_entries": 0,
+                "ocr_entries": 0,
                 "successful": 0,
                 "failed": 0,
                 "skipped": 0,
                 "converted_files": [],
             }
 
-        by_unp[unp]["pdf_entries"] += 1
+        by_unp[unp]["ocr_entries"] += 1
 
         if result.status == "SUCCESS":
             by_unp[unp]["successful"] += 1
@@ -491,7 +493,7 @@ async def finalize_ocr_mapping(
 
     logger.info(
         f"Mapping OCR pass complete: unps={stats['total_unps_scanned']}, "
-        f"pdf_entries={stats['total_pdf_entries']}, "
+        f"ocr_entries={stats['total_ocr_entries']}, "
         f"successful={stats['total_successful']}, "
         f"failed={stats['total_failed']}, "
         f"skipped={stats['total_skipped']}"
@@ -506,26 +508,26 @@ async def finalize_ocr_mapping(
 
 
 @workflows.workflow.define(
-    name="epfr-pdf-ocr-converter",
-    workflow_display_name="EPFR PDF OCR Converter",
-    workflow_description="Converts downloaded EPFR PDF files to markdown using Mistral OCR and updates mapping.",
+    name="epfr-ocr-converter",
+    workflow_display_name="EPFR OCR Converter",
+    workflow_description="Converts downloaded EPFR files (PDF, PNG, JPG, JPEG) to markdown using Mistral OCR and updates mapping.",
 )
-class EpfrPdfOcrConverter:
-    """Convert mapped EPFR PDF disclosures to Markdown via Mistral OCR.
+class EpfrOcrConverter:
+    """Convert mapped EPFR disclosures (PDF, PNG, JPG, JPEG) to Markdown via Mistral OCR.
 
     The workflow is split into 3 activities for granular UI progress tracking:
-    1. scan_pdf_entries: Discover PDF entries in the mapping
-    2. process_pdf_ocr: Perform OCR on discovered PDFs
+    1. scan_ocr_entries: Discover OCR-able entries in the mapping
+    2. process_ocr_files: Perform OCR on discovered files
     3. finalize_ocr_mapping: Save the updated mapping
 
     This allows the Mistral Workflows UI to display progress as:
-    - Step 1/3: Scanning mapping for PDF entries...
-    - Step 2/3: Processing PDF OCR...
+    - Step 1/3: Scanning mapping for OCR-able entries...
+    - Step 2/3: Processing OCR...
     - Step 3/3: Finalizing and saving mapping...
     """
 
     @workflows.workflow.entrypoint
-    async def run(self, input: EpfrPdfOcrInput) -> EpfrPdfOcrOutput:
+    async def run(self, input: EpfrOcrInput) -> EpfrOcrOutput:
         """Run the EPFR PDF OCR conversion workflow with 3 tracked steps.
 
         Coordinates the 3 activities to provide granular progress tracking
@@ -539,20 +541,20 @@ class EpfrPdfOcrConverter:
 
         """
         logger.info(
-            f"Workflow epfr-pdf-ocr-converter started: output_dir={input.output_dir}, "
+            f"Workflow epfr-ocr-converter started: output_dir={input.output_dir}, "
             f"mapping_filename={input.mapping_filename}, overwrite={input.overwrite}, "
             f"cleanup_source={input.cleanup_source}, unps={input.unps}"
         )
 
-        # Step 1/3: Scan mapping for PDF entries
-        logger.info("Starting Step 1/3: Scanning mapping for PDF entries...")
-        scan_result = await scan_pdf_entries(input)
+        # Step 1/3: Scan mapping for OCR-able entries
+        logger.info("Starting Step 1/3: Scanning mapping for OCR-able entries...")
+        scan_result = await scan_ocr_entries(input)
 
-        if scan_result.total_pdf_entries == 0:
-            logger.info("No PDF entries found in mapping")
-            return EpfrPdfOcrOutput(
+        if scan_result.total_ocr_entries == 0:
+            logger.info("No OCR-able entries found in mapping")
+            return EpfrOcrOutput(
                 mapping_path=str(Path(scan_result.output_dir) / scan_result.mapping_filename),
-                total_pdf_entries=0,
+                total_ocr_entries=0,
                 total_successful=0,
                 total_failed=0,
                 total_skipped=0,
@@ -561,7 +563,7 @@ class EpfrPdfOcrConverter:
                 stats={
                     "mapping_path": str(Path(scan_result.output_dir) / scan_result.mapping_filename),
                     "total_unps_scanned": scan_result.total_unps_scanned,
-                    "total_pdf_entries": 0,
+                    "total_ocr_entries": 0,
                     "total_successful": 0,
                     "total_failed": 0,
                     "total_skipped": 0,
@@ -573,13 +575,13 @@ class EpfrPdfOcrConverter:
             )
 
         logger.info(
-            f"Step 1/3 complete: Found {scan_result.total_pdf_entries} PDF entries "
+            f"Step 1/3 complete: Found {scan_result.total_ocr_entries} OCR-able entries "
             f"across {scan_result.total_unps_scanned} UNPs"
         )
 
-        # Step 2/3: Process PDF OCR
-        logger.info("Starting Step 2/3: Processing PDF OCR...")
-        process_result = await process_pdf_ocr(
+        # Step 2/3: Process OCR
+        logger.info("Starting Step 2/3: Processing OCR...")
+        process_result = await process_ocr_files(
             output_root=scan_result.output_dir,
             scan_result=scan_result,
             overwrite=input.overwrite,
@@ -602,9 +604,9 @@ class EpfrPdfOcrConverter:
 
         logger.info("Step 3/3 complete: Mapping saved")
 
-        output = EpfrPdfOcrOutput(
+        output = EpfrOcrOutput(
             mapping_path=str(final_stats.get("mapping_path", "")),
-            total_pdf_entries=int(final_stats.get("total_pdf_entries", 0)),
+            total_ocr_entries=int(final_stats.get("total_ocr_entries", 0)),
             total_successful=int(final_stats.get("total_successful", 0)),
             total_failed=int(final_stats.get("total_failed", 0)),
             total_skipped=int(final_stats.get("total_skipped", 0)),
@@ -614,10 +616,16 @@ class EpfrPdfOcrConverter:
         )
 
         logger.info(
-            f"PDF OCR complete: {output.total_pdf_entries} entries, "
+            f"OCR complete: {output.total_ocr_entries} entries, "
             f"{output.total_successful} successful, "
             f"{output.total_failed} failed, "
             f"{output.total_skipped} skipped"
         )
 
         return output
+
+
+# Backward compatibility aliases
+EpfrPdfOcrConverter = EpfrOcrConverter
+scan_pdf_entries = scan_ocr_entries
+process_pdf_ocr = process_ocr_files

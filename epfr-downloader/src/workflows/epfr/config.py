@@ -81,6 +81,7 @@ class EpfrConfig:
     max_concurrent_ocr: int
     max_pdf_size_bytes: int
     ocr_model: str
+    ocr_supported_extensions: set[str]
 
     ai_model: str
     ai_temperature: float
@@ -131,6 +132,7 @@ EPFR_DEFAULTS = EpfrConfig(
     max_concurrent_ocr=2,
     max_pdf_size_bytes=50 * 1024 * 1024,
     ocr_model="mistral-ocr-latest",
+    ocr_supported_extensions={".pdf", ".png", ".jpg", ".jpeg"},
     ai_model="ministral-8b-latest",
     ai_temperature=0.0,
     ai_timeout=60,
@@ -175,6 +177,7 @@ _ENV_FIELDS: list[tuple[str, type, str, str | None]] = [
     ("max_concurrent_ocr", int, "EPFR_MAX_CONCURRENT_OCR", "positive_int"),
     ("max_pdf_size_bytes", int, "EPFR_MAX_PDF_SIZE_BYTES", "positive_int"),
     ("ocr_model", str, "EPFR_OCR_MODEL", "mistral-ocr-latest"),
+    ("ocr_supported_extensions", set, "EPFR_OCR_SUPPORTED_EXTENSIONS", None),
     ("ai_model", str, "EPFR_AI_MODEL", "ministral-14b-latest"),
     ("ai_temperature", float, "EPFR_AI_TEMPERATURE", "non_negative_float"),
     ("ai_timeout", int, "EPFR_AI_TIMEOUT", "positive_int"),
@@ -235,6 +238,24 @@ def _validate(value: object, validation_kind: str | None, env_key: str) -> None:
             raise ValueError(f"{env_key} must be a non-negative number, got {value!r}")
     elif validation_kind == "bool":
         pass
+
+
+def get_ocr_mime_type(extension: str) -> str:
+    """Return MIME type for OCR file extension.
+
+    Args:
+        extension: File extension (e.g., '.pdf', '.png', '.jpg', '.jpeg')
+
+    Returns:
+        MIME type string for the OCR API data URI.
+    """
+    mime_types = {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+    }
+    return mime_types.get(extension.lower(), "application/octet-stream")
 
 
 def load_epfr_config() -> EpfrConfig:
@@ -354,6 +375,7 @@ RETRY_BACKOFF_MAX: int = EPFR_DEFAULTS.retry_backoff_max
 MAX_CONCURRENT_OCR: int = EPFR_DEFAULTS.max_concurrent_ocr
 MAX_PDF_SIZE_BYTES: int = EPFR_DEFAULTS.max_pdf_size_bytes
 OCR_MODEL: str = EPFR_DEFAULTS.ocr_model
+OCR_SUPPORTED_EXTENSIONS: set[str] = EPFR_DEFAULTS.ocr_supported_extensions
 AI_MODEL: str = EPFR_DEFAULTS.ai_model
 AI_TEMPERATURE: float = EPFR_DEFAULTS.ai_temperature
 AI_TIMEOUT: int = EPFR_DEFAULTS.ai_timeout

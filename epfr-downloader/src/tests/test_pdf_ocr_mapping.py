@@ -1,4 +1,4 @@
-"""Default-collected tests for OCR mapping updates without live OCR."""
+"""Default-collected tests for OCR mapping updates without live OCR (PDF, PNG, JPG, JPEG)."""
 
 # ruff: noqa: D102
 
@@ -124,7 +124,7 @@ async def test_ocr_mapping_fixture_pdf_updates_mapping_and_preserves_fixture(
 
     monkeypatch.setattr(pdf_ocr_module, "mistralai_ocr", _fake_ocr)
 
-    stats = await pdf_ocr_module.ocr_mapping_pdfs(
+    stats = await pdf_ocr_module.ocr_mapping_files(
         output_root=tmp_path,
         mapping_filename="unp_file_mapping.json",
         overwrite=True,
@@ -139,7 +139,7 @@ async def test_ocr_mapping_fixture_pdf_updates_mapping_and_preserves_fixture(
 
     assert stats["mapping_path"] == str(mapping_path.resolve())
     assert stats["total_unps_scanned"] == 1
-    assert stats["total_pdf_entries"] == 1
+    assert stats["total_ocr_entries"] == 1
     assert stats["total_successful"] == 1
     assert stats["total_failed"] == 0
     assert stats["total_skipped"] == 0
@@ -171,7 +171,7 @@ async def test_ocr_mapping_skips_when_markdown_exists(
 
     monkeypatch.setattr(pdf_ocr_module, "mistralai_ocr", _fake_ocr)
 
-    stats = await pdf_ocr_module.ocr_mapping_pdfs(
+    stats = await pdf_ocr_module.ocr_mapping_files(
         output_root=tmp_path,
         mapping_filename="unp_file_mapping.json",
         overwrite=False,
@@ -183,7 +183,7 @@ async def test_ocr_mapping_skips_when_markdown_exists(
     updated_entry = updated_mapping[unp]["files"][0]
 
     assert ocr_calls == 0
-    assert stats["total_pdf_entries"] == 1
+    assert stats["total_ocr_entries"] == 1
     assert stats["total_successful"] == 0
     assert stats["total_failed"] == 0
     assert stats["total_skipped"] == 1
@@ -230,7 +230,7 @@ async def test_ocr_mapping_preserves_original_mapping_when_atomic_replace_fails(
     monkeypatch.setattr(pdf_ocr_module.os, "replace", _failing_replace)
 
     with pytest.raises(OSError, match="replace failed"):
-        await pdf_ocr_module.ocr_mapping_pdfs(
+        await pdf_ocr_module.ocr_mapping_files(
             output_root=tmp_path,
             mapping_filename="unp_file_mapping.json",
             overwrite=True,

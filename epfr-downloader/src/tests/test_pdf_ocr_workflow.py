@@ -1,8 +1,8 @@
-"""Tests for PDF OCR workflow activities.
+"""Tests for OCR workflow activities (PDF, PNG, JPG, JPEG).
 
 These tests verify the 3-activity split for UI progress tracking:
-1. scan_pdf_entries - Discover PDF entries in mapping
-2. process_pdf_ocr - Perform OCR on discovered PDFs
+1. scan_ocr_entries - Discover OCR-able entries in mapping
+2. process_ocr_files - Perform OCR on discovered files
 3. finalize_ocr_mapping - Save updated mapping
 """
 
@@ -13,16 +13,16 @@ import tempfile
 import pytest
 
 from workflows.epfr.models import (
-    EpfrPdfOcrInput,
-    PdfOcrFileResult,
-    PdfOcrProcessResult,
-    PdfOcrScanResult,
-    PdfOcrWorkItem,
+    EpfrOcrInput,
+    OcrFileResult,
+    OcrProcessResult,
+    OcrScanResult,
+    OcrWorkItem,
 )
 from workflows.epfr.pdf_ocr_workflow import (
     finalize_ocr_mapping,
-    process_pdf_ocr,
-    scan_pdf_entries,
+    process_ocr_files,
+    scan_ocr_entries,
 )
 
 
@@ -33,11 +33,11 @@ from workflows.epfr.pdf_ocr_workflow import (
 
 @pytest.fixture
 def sample_mapping_dir():
-    """Create a temporary directory with a mapping file and dummy PDFs."""
+    """Create a temporary directory with a mapping file and dummy OCR-able files (PDF, PNG, JPG, JPEG)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
 
-        # Create mapping JSON with PDF entries
+        # Create mapping JSON with OCR-able entries (PDF, PNG, JPG, JPEG)
         mapping = {
             "123456789": {
                 "title": "Test Company",
@@ -53,6 +53,9 @@ def sample_mapping_dir():
                 "holder_id": 2,
                 "files": [
                     {"id": 4, "filename": "file4.pdf", "original_name": "Final.pdf"},
+                    {"id": 5, "filename": "photo.jpg", "original_name": "Photo.jpg"},
+                    {"id": 6, "filename": "image.png", "original_name": "Image.png"},
+                    {"id": 7, "filename": "picture.jpeg", "original_name": "Picture.jpeg"},
                 ],
             },
         }
@@ -64,11 +67,17 @@ def sample_mapping_dir():
         (tmpdir / "123456789").mkdir()
         (tmpdir / "987654321").mkdir()
 
-        # Create dummy PDF files (minimal valid PDF content)
+        # Create dummy OCR-able files
         pdf_content = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n%%EOF"
+        jpg_content = b"\xff\xd8\xff"
+        png_content = b"\x89PNG\r\n\x1a\n"
+
         (tmpdir / "123456789" / "file1.pdf").write_bytes(pdf_content)
         (tmpdir / "123456789" / "file2.pdf").write_bytes(pdf_content)
         (tmpdir / "987654321" / "file4.pdf").write_bytes(pdf_content)
+        (tmpdir / "987654321" / "photo.jpg").write_bytes(jpg_content)
+        (tmpdir / "987654321" / "image.png").write_bytes(png_content)
+        (tmpdir / "987654321" / "picture.jpeg").write_bytes(jpg_content)
 
         yield tmpdir, mapping_path, mapping
 
@@ -90,107 +99,110 @@ def empty_mapping_dir():
 
 
 @pytest.mark.anyio
-async def test_scan_pdf_entries_basic(sample_mapping_dir):
-    """Test basic scanning of PDF entries."""
+async def test_scan_ocr_entries_basic(sample_mapping_dir):
+    """Test basic scanning of OCR-able entries (PDF, PNG, JPG, JPEG)."""
     tmpdir, mapping_path, expected_mapping = sample_mapping_dir
 
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
         overwrite=True,
         cleanup_source=True,
     )
 
-    result = await scan_pdf_entries(input)
+    result = await scan_ocr_entries(input)
 
-    assert isinstance(result, PdfOcrScanResult)
-    assert result.total_pdf_entries == 3  # file1.pdf, file2.pdf, file4.pdf
+    assert isinstance(result, OcrScanResult)
+    # file1.pdf, file2.pdf, file4.pdf, photo.jpg, image.png, picture.jpeg = 6 OCR-able files
+    assert result.total_ocr_entries == 6
     assert result.total_unps_scanned == 2  # 123456789, 987654321
-    assert len(result.work_items) == 3
+    assert len(result.work_items) == 6
 
     # Check work item structure
     for item in result.work_items:
-        assert isinstance(item, PdfOcrWorkItem)
-        assert item.filename.endswith(".pdf")
+        assert isinstance(item, OcrWorkItem)
+        assert item.filename.endswith((".pdf", ".png", ".jpg", ".jpeg"))
         assert Path(item.file_path).exists()
         assert item.unp in ["123456789", "987654321"]
 
 
 @pytest.mark.anyio
-async def test_scan_pdf_entries_with_unp_filter(sample_mapping_dir):
+async def test_scan_ocr_entries_with_unp_filter(sample_mapping_dir):
     """Test scanning with UNP filter."""
     tmpdir, mapping_path, _ = sample_mapping_dir
 
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
         unps=["123456789"],
     )
 
-    result = await scan_pdf_entries(input)
+    result = await scan_ocr_entries(input)
 
-    assert result.total_pdf_entries == 2  # Only from UNP 123456789
+    # Only from UNP 123456789: file1.pdf, file2.pdf (2 OCR-able files)
+    assert result.total_ocr_entries == 2
     assert result.total_unps_scanned == 1
     assert all(item.unp == "123456789" for item in result.work_items)
 
 
 @pytest.mark.anyio
-async def test_scan_pdf_entries_empty_mapping(empty_mapping_dir):
+async def test_scan_ocr_entries_empty_mapping(empty_mapping_dir):
     """Test scanning with empty mapping file."""
     tmpdir, mapping_path = empty_mapping_dir
 
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
     )
 
-    result = await scan_pdf_entries(input)
+    result = await scan_ocr_entries(input)
 
-    assert result.total_pdf_entries == 0
+    assert result.total_ocr_entries == 0
     assert result.total_unps_scanned == 0
     assert len(result.work_items) == 0
 
 
 @pytest.mark.anyio
-async def test_scan_pdf_entries_not_found():
+async def test_scan_ocr_entries_not_found():
     """Test scanning with non-existent mapping file."""
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir="/nonexistent",
         mapping_filename="unp_file_mapping.json",
     )
 
     with pytest.raises(FileNotFoundError):
-        await scan_pdf_entries(input)
+        await scan_ocr_entries(input)
 
 
 @pytest.mark.anyio
-async def test_scan_pdf_entries_skips_non_pdf(sample_mapping_dir):
-    """Test that non-PDF files are skipped during scan."""
+async def test_scan_ocr_entries_skips_non_ocr_files(sample_mapping_dir):
+    """Test that non-OCR-able files are skipped during scan."""
     tmpdir, mapping_path, _ = sample_mapping_dir
 
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
     )
 
-    result = await scan_pdf_entries(input)
+    result = await scan_ocr_entries(input)
 
-    # file3.docx should be skipped
-    assert result.total_pdf_entries == 3
-    assert all(item.filename.endswith(".pdf") for item in result.work_items)
+    # file3.docx should be skipped - only OCR-able files (PDF, PNG, JPG, JPEG) are included
+    # Total: file1.pdf, file2.pdf, file4.pdf, photo.jpg, image.png, picture.jpeg = 6
+    assert result.total_ocr_entries == 6
+    assert all(item.filename.endswith((".pdf", ".png", ".jpg", ".jpeg")) for item in result.work_items)
 
 
 @pytest.mark.anyio
-async def test_scan_pdf_entries_preserves_mapping_raw(sample_mapping_dir):
+async def test_scan_ocr_entries_preserves_mapping_raw(sample_mapping_dir):
     """Test that scan preserves the full mapping for downstream use."""
     tmpdir, mapping_path, expected_mapping = sample_mapping_dir
 
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
     )
 
-    result = await scan_pdf_entries(input)
+    result = await scan_ocr_entries(input)
 
     assert result.mapping_raw == expected_mapping
 
@@ -201,13 +213,13 @@ async def test_scan_pdf_entries_preserves_mapping_raw(sample_mapping_dir):
 
 
 @pytest.mark.anyio
-async def test_process_pdf_ocr_empty():
+async def test_process_ocr_files_empty():
     """Test processing with no work items."""
-    scan_result = PdfOcrScanResult(
+    scan_result = OcrScanResult(
         mapping_path="/test/mapping.json",
         mapping_raw={},
         total_unps_scanned=0,
-        total_pdf_entries=0,
+        total_ocr_entries=0,
         work_items=[],
         by_unp={},
         output_dir="/test",
@@ -215,9 +227,9 @@ async def test_process_pdf_ocr_empty():
         cleanup_source=None,
     )
 
-    result = await process_pdf_ocr("/test", scan_result, overwrite=True)
+    result = await process_ocr_files("/test", scan_result, overwrite=True)
 
-    assert isinstance(result, PdfOcrProcessResult)
+    assert isinstance(result, OcrProcessResult)
     assert result.total_successful == 0
     assert result.total_failed == 0
     assert result.total_skipped == 0
@@ -225,7 +237,7 @@ async def test_process_pdf_ocr_empty():
 
 
 @pytest.mark.anyio
-async def test_process_pdf_ocr_preserves_mapping():
+async def test_process_ocr_files_preserves_mapping():
     """Test that process preserves mapping structure."""
     original_mapping = {
         "123": {
@@ -235,13 +247,13 @@ async def test_process_pdf_ocr_preserves_mapping():
         }
     }
 
-    scan_result = PdfOcrScanResult(
+    scan_result = OcrScanResult(
         mapping_path="/test/mapping.json",
         mapping_raw=original_mapping,
         total_unps_scanned=1,
-        total_pdf_entries=1,
+        total_ocr_entries=1,
         work_items=[
-            PdfOcrWorkItem(
+            OcrWorkItem(
                 unp="123",
                 file_index=0,
                 filename="file1.pdf",
@@ -249,13 +261,13 @@ async def test_process_pdf_ocr_preserves_mapping():
                 entry={"id": 1, "filename": "file1.pdf"},
             )
         ],
-        by_unp={"123": {"pdf_entries": 1}},
+        by_unp={"123": {"ocr_entries": 1}},
         output_dir="/test",
         mapping_filename="mapping.json",
         cleanup_source=None,
     )
 
-    result = await process_pdf_ocr("/test", scan_result, overwrite=True)
+    result = await process_ocr_files("/test", scan_result, overwrite=True)
 
     # Mapping should still have the structure
     assert "123" in result.updated_mapping
@@ -271,7 +283,7 @@ async def test_process_pdf_ocr_preserves_mapping():
 @pytest.mark.anyio
 async def test_finalize_ocr_mapping_basic(tmp_path):
     """Test finalization saves mapping correctly."""
-    process_result = PdfOcrProcessResult(
+    process_result = OcrProcessResult(
         updated_mapping={
             "123": {
                 "title": "Test",
@@ -280,7 +292,7 @@ async def test_finalize_ocr_mapping_basic(tmp_path):
             }
         },
         results=[
-            PdfOcrFileResult(
+            OcrFileResult(
                 unp="123",
                 file_index=0,
                 status="SUCCESS",
@@ -328,10 +340,10 @@ async def test_finalize_ocr_mapping_content(tmp_path):
         }
     }
 
-    process_result = PdfOcrProcessResult(
+    process_result = OcrProcessResult(
         updated_mapping=updated_mapping,
         results=[
-            PdfOcrFileResult(
+            OcrFileResult(
                 unp="123",
                 file_index=0,
                 status="SUCCESS",
@@ -367,10 +379,10 @@ async def test_finalize_ocr_mapping_content(tmp_path):
 @pytest.mark.anyio
 async def test_finalize_ocr_mapping_by_unp_stats(tmp_path):
     """Test that by_unp stats are reconstructed correctly."""
-    process_result = PdfOcrProcessResult(
+    process_result = OcrProcessResult(
         updated_mapping={},
         results=[
-            PdfOcrFileResult(
+            OcrFileResult(
                 unp="unp1",
                 file_index=0,
                 status="SUCCESS",
@@ -380,7 +392,7 @@ async def test_finalize_ocr_mapping_by_unp_stats(tmp_path):
                 error=None,
                 converted_from="f1.pdf",
             ),
-            PdfOcrFileResult(
+            OcrFileResult(
                 unp="unp1",
                 file_index=1,
                 status="FAILED",
@@ -390,7 +402,7 @@ async def test_finalize_ocr_mapping_by_unp_stats(tmp_path):
                 error="Some error",
                 converted_from=None,
             ),
-            PdfOcrFileResult(
+            OcrFileResult(
                 unp="unp2",
                 file_index=0,
                 status="SUCCESS",
@@ -421,12 +433,12 @@ async def test_finalize_ocr_mapping_by_unp_stats(tmp_path):
     assert "unp1" in by_unp
     assert "unp2" in by_unp
 
-    assert by_unp["unp1"]["pdf_entries"] == 2
+    assert by_unp["unp1"]["ocr_entries"] == 2
     assert by_unp["unp1"]["successful"] == 1
     assert by_unp["unp1"]["failed"] == 1
     assert by_unp["unp1"]["skipped"] == 0
 
-    assert by_unp["unp2"]["pdf_entries"] == 1
+    assert by_unp["unp2"]["ocr_entries"] == 1
     assert by_unp["unp2"]["successful"] == 1
     assert by_unp["unp2"]["failed"] == 0
 
@@ -438,30 +450,30 @@ async def test_finalize_ocr_mapping_by_unp_stats(tmp_path):
 
 @pytest.mark.anyio
 async def test_workflow_pipeline_empty(sample_mapping_dir):
-    """Test full 3-activity pipeline with empty result (no PDFs to process)."""
+    """Test full 3-activity pipeline with empty result (no OCR-able files to process)."""
     tmpdir, mapping_path, _ = sample_mapping_dir
 
     # First, scan
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
         unps=["999999999"],  # Non-existent UNP
     )
 
-    scan_result = await scan_pdf_entries(input)
-    assert scan_result.total_pdf_entries == 0
+    scan_result = await scan_ocr_entries(input)
+    assert scan_result.total_ocr_entries == 0
 
     # Then process (empty)
-    process_result = await process_pdf_ocr(str(tmpdir), scan_result, overwrite=True)
+    process_result = await process_ocr_files(str(tmpdir), scan_result, overwrite=True)
     assert process_result.total_successful == 0
 
     # Then finalize
     stats = await finalize_ocr_mapping(str(tmpdir), "unp_file_mapping.json", process_result, cleanup_source=True)
-    assert stats["total_pdf_entries"] == 0
+    assert stats["total_ocr_entries"] == 0
 
 
 @pytest.mark.anyio
-async def test_process_pdf_ocr_exception_isolation(tmp_path):
+async def test_process_ocr_files_exception_isolation(tmp_path):
     """Test that one task raising an exception does not cancel sibling tasks."""
     from unittest.mock import AsyncMock, patch
 
@@ -482,27 +494,27 @@ async def test_process_pdf_ocr_exception_isolation(tmp_path):
         }
     }
 
-    scan_result = PdfOcrScanResult(
+    scan_result = OcrScanResult(
         mapping_path=str(tmp_path / "mapping.json"),
         mapping_raw=original_mapping,
         total_unps_scanned=1,
-        total_pdf_entries=3,
+        total_ocr_entries=3,
         work_items=[
-            PdfOcrWorkItem(
+            OcrWorkItem(
                 unp=unp,
                 file_index=0,
                 filename="a.pdf",
                 file_path=str(tmp_path / unp / "a.pdf"),
                 entry={"id": 1, "filename": "a.pdf"},
             ),
-            PdfOcrWorkItem(
+            OcrWorkItem(
                 unp=unp,
                 file_index=1,
                 filename="b.pdf",
                 file_path=str(tmp_path / unp / "b.pdf"),
                 entry={"id": 2, "filename": "b.pdf"},
             ),
-            PdfOcrWorkItem(
+            OcrWorkItem(
                 unp=unp,
                 file_index=2,
                 filename="c.pdf",
@@ -510,7 +522,7 @@ async def test_process_pdf_ocr_exception_isolation(tmp_path):
                 entry={"id": 3, "filename": "c.pdf"},
             ),
         ],
-        by_unp={unp: {"pdf_entries": 3}},
+        by_unp={unp: {"ocr_entries": 3}},
         output_dir=str(tmp_path),
         mapping_filename="mapping.json",
         cleanup_source=None,
@@ -536,7 +548,7 @@ async def test_process_pdf_ocr_exception_isolation(tmp_path):
         "workflows.epfr.pdf_ocr_workflow._process_work_item",
         new=AsyncMock(side_effect=_mock_process),
     ):
-        result = await process_pdf_ocr(str(tmp_path), scan_result, overwrite=True)
+        result = await process_ocr_files(str(tmp_path), scan_result, overwrite=True)
 
     assert result.total_failed == 1
     assert result.total_successful == 2
@@ -564,25 +576,26 @@ async def test_workflow_pipeline_structure(sample_mapping_dir):
     tmpdir, mapping_path, expected_mapping = sample_mapping_dir
 
     # Step 1: Scan
-    input = EpfrPdfOcrInput(
+    input = EpfrOcrInput(
         output_dir=str(tmpdir),
         mapping_filename="unp_file_mapping.json",
     )
 
-    scan_result = await scan_pdf_entries(input)
-    assert scan_result.total_pdf_entries == 3
+    scan_result = await scan_ocr_entries(input)
+    # 6 OCR-able files: file1.pdf, file2.pdf, file4.pdf, photo.jpg, image.png, picture.jpeg
+    assert scan_result.total_ocr_entries == 6
 
     # Step 2: Process
-    # Note: This will fail because the PDFs are dummy, but we can test the flow
-    process_result = await process_pdf_ocr(str(tmpdir), scan_result, overwrite=True)
+    # Note: This will fail because the files are dummy, but we can test the flow
+    process_result = await process_ocr_files(str(tmpdir), scan_result, overwrite=True)
 
-    # All 3 PDFs should have failed (they're minimal dummy PDFs, not valid)
+    # All 6 files should have failed (they're minimal dummy files, not valid)
     # But the structure should be correct
-    assert len(process_result.results) == 3
-    assert process_result.total_successful + process_result.total_failed + process_result.total_skipped == 3
+    assert len(process_result.results) == 6
+    assert process_result.total_successful + process_result.total_failed + process_result.total_skipped == 6
 
     # Step 3: Finalize
     stats = await finalize_ocr_mapping(str(tmpdir), "unp_file_mapping.json", process_result, cleanup_source=True)
 
-    assert stats["total_pdf_entries"] == 3
+    assert stats["total_ocr_entries"] == 6
     assert "by_unp" in stats

@@ -497,3 +497,50 @@ class TestInputResolution:
         resolved = mod.resolve_pdf_ocr_input()
         assert resolved["cleanup_source"] is True
         assert resolved["mapping_filename"] == "unp_file_mapping.json"
+
+    # OCR supported extensions tests
+    def test_ocr_supported_extensions_default(self, _clean_config):
+        mod = _clean_config
+        defaults = mod.EPFR_DEFAULTS
+        assert defaults.ocr_supported_extensions == {".pdf", ".png", ".jpg", ".jpeg"}
+
+    def test_ocr_supported_extensions_from_config(self, _clean_config):
+        mod = _clean_config
+        cfg = mod.load_epfr_config()
+        assert cfg.ocr_supported_extensions == {".pdf", ".png", ".jpg", ".jpeg"}
+
+
+# ===================================================================
+# 8. OCR MIME type helper tests
+# ===================================================================
+
+
+class TestOcrMimeTypes:
+    """Tests for get_ocr_mime_type() helper function."""
+
+    def test_pdf_mime_type(self, _clean_config):
+        mod = _clean_config
+        assert mod.get_ocr_mime_type(".pdf") == "application/pdf"
+
+    def test_png_mime_type(self, _clean_config):
+        mod = _clean_config
+        assert mod.get_ocr_mime_type(".png") == "image/png"
+
+    def test_jpg_mime_type(self, _clean_config):
+        mod = _clean_config
+        assert mod.get_ocr_mime_type(".jpg") == "image/jpeg"
+
+    def test_jpeg_mime_type(self, _clean_config):
+        mod = _clean_config
+        assert mod.get_ocr_mime_type(".jpeg") == "image/jpeg"
+
+    def test_unknown_extension_fallback(self, _clean_config):
+        mod = _clean_config
+        assert mod.get_ocr_mime_type(".docx") == "application/octet-stream"
+
+    def test_case_insensitive(self, _clean_config):
+        mod = _clean_config
+        assert mod.get_ocr_mime_type(".PDF") == "application/pdf"
+        assert mod.get_ocr_mime_type(".PNG") == "image/png"
+        assert mod.get_ocr_mime_type(".JPG") == "image/jpeg"
+        assert mod.get_ocr_mime_type(".JPEG") == "image/jpeg"

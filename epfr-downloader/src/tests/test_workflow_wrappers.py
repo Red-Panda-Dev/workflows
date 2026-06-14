@@ -536,11 +536,11 @@ class TestWorkflowDiscovery:
         assert self._get_workflow_name(EpfrFilesDownloader) == "epfr-files-downloader"
 
     def test_pdf_ocr_converter_discoverable(self):
-        """EpfrPdfOcrConverter has the discovery attribute and correct name."""
-        from workflows.epfr.pdf_ocr_workflow import EpfrPdfOcrConverter
+        """EpfrPdfOcrConverter (now EpfrOcrConverter) has the discovery attribute and correct name."""
+        from workflows.epfr.pdf_ocr_workflow import EpfrOcrConverter
 
-        assert hasattr(EpfrPdfOcrConverter, "__workflows_workflow_def")
-        assert self._get_workflow_name(EpfrPdfOcrConverter) == "epfr-pdf-ocr-converter"
+        assert hasattr(EpfrOcrConverter, "__workflows_workflow_def")
+        assert self._get_workflow_name(EpfrOcrConverter) == "epfr-ocr-converter"
 
     def test_ai_distiller_discoverable(self):
         """EpfrAiDistillerWorkflow has the discovery attribute and correct name."""
@@ -571,7 +571,7 @@ class TestAllWorkflowsDiscovered:
         for expected_name in [
             "epfr-ai-distiller",
             "epfr-files-downloader",
-            "epfr-pdf-ocr-converter",
+            "epfr-ocr-converter",
             "epfr-share-payout-exporter",
         ]:
             assert expected_name in names
@@ -585,10 +585,10 @@ class TestWorkflowClassInterface:
         assert callable(getattr(EpfrFilesDownloader, "run", None))
 
     def test_pdf_ocr_has_run_method(self):
-        from workflows.epfr.pdf_ocr_workflow import EpfrPdfOcrConverter
+        from workflows.epfr.pdf_ocr_workflow import EpfrOcrConverter
 
-        assert hasattr(EpfrPdfOcrConverter, "run")
-        assert callable(getattr(EpfrPdfOcrConverter, "run", None))
+        assert hasattr(EpfrOcrConverter, "run")
+        assert callable(getattr(EpfrOcrConverter, "run", None))
 
     def test_ai_distiller_has_run_method(self):
         from workflows.epfr.ai_distiller_workflow import EpfrAiDistillerWorkflow
