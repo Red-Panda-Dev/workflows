@@ -7,32 +7,35 @@ The EPFR Files Downloader — a set of Mistral Workflows that fetch paginated di
 Four separate workflows, each independently invocable:
 
 1. **`epfr-files-downloader`** — fetch pages → download files → extract archives → convert documents → produce `unp_file_mapping.json`
-2. **`epfr-pdf-ocr-converter`** — OCR PDFs in mapped UNP folders → update mapping entries to point at Markdown files
+2. **`epfr-ocr-converter`** — OCR files (PDF, PNG, JPG, JPEG) in mapped UNP folders → update mapping entries to point at Markdown files
 3. **`epfr-ai-distiller`** — AI-extract structured dividend data from mapped Markdown files → produce `ai_distilled_dividends.json`
-4. **`epfr-share-payout-exporter`** — join distilled dividends with share reference CSV → produce `share_payouts_by_unp.json`
+4. **`epfr-share-payout-exporter`** — join distilled dividends with share reference CSV → produce `share_payouts_by_unp.json` and `share_dividends_insert.sql` (SQL generation runs in-workflow as the 4th activity)
 
 ## What lives here
 
 ```text
 src/
 ├── discover.py                      # Scans workflows/ for workflow classes, starts Mistral worker
-├── tests/                           # Unit tests (15 modules)
+├── tests/                           # Unit tests (18 modules)
 │   ├── conftest.py                  # Shared fixtures
-│   ├── test_client.py              # API client and download logic
-│   ├── test_config.py              # Configuration constants
-│   ├── test_converter.py           # Document conversion
-│   ├── test_detector.py            # Magic-byte detection
-│   ├── test_extractor.py           # Archive extraction and OOXML detection
-│   ├── test_models.py              # Pydantic model parsing
-│   ├── test_markdown_cleanup.py    # Markdown cleanup logic
-│   ├── test_pdf_ocr.py            # PDF OCR conversion (skipped by default)
-│   ├── test_pdf_ocr_mapping.py    # PDF OCR mapping update logic
-│   ├── test_pdf_ocr_workflow.py   # PDF OCR workflow wrapper
-│   ├── test_ai_distiller.py       # AI distillation
-│   ├── test_share_payout_exporter.py # Share payout export
-│   ├── test_workflow_wrappers.py   # Main workflow + share exporter wrappers
-│   ├── test_start_cli.py          # CLI start script
-│   └── test_fixture_inventory.py  # Test fixture completeness checks
+│   ├── test_ai_distiller.py         # AI distillation logic
+│   ├── test_ai_distiller_workflow.py # AI distiller workflow (3 activities)
+│   ├── test_client.py               # API client and download logic
+│   ├── test_config.py               # Configuration constants
+│   ├── test_converter.py            # Document conversion
+│   ├── test_detector.py             # Magic-byte detection
+│   ├── test_extractor.py            # Archive extraction and OOXML detection
+│   ├── test_fixture_inventory.py    # Test fixture completeness checks
+│   ├── test_markdown_cleanup.py     # Markdown cleanup logic
+│   ├── test_models.py               # Pydantic model parsing
+│   ├── test_pdf_ocr.py              # OCR conversion (PDF, PNG, JPG, JPEG) — skipped by default
+│   ├── test_pdf_ocr_mapping.py      # OCR mapping update logic (PDF, PNG, JPG, JPEG)
+│   ├── test_pdf_ocr_workflow.py     # OCR workflow wrapper (3 activities)
+│   ├── test_share_payout_exporter.py # Share payout export logic
+│   ├── test_share_payout_exporter_workflow.py # Share payout export workflow (4 activities)
+│   ├── test_start_cli.py            # CLI start script
+│   ├── test_workflow_activities.py  # Main download workflow activities
+│   ├── test_workflow_wrappers.py    # Main download workflow wrapper + save_unp_mapping
 └── workflows/
     ├── __init__.py                  # Empty package marker (auto-discovery entry point)
     ├── start.py                     # CLI to trigger workflow execution via Mistral client
@@ -44,18 +47,17 @@ src/
         ├── extractor.py             # Archive extraction (ZIP, TAR, GZ) with OOXML detection
         ├── converter.py             # Document-to-Markdown: docx/doc/xls/xlsx via Python libs
         ├── markdown_cleanup.py      # Token-heavy markdown artifact removal (images, excessive blanks)
-        ├── pdf_ocr.py               # PDF OCR conversion via Mistral OCR plugin, mapping update
-        ├── pdf_ocr_workflow.py      # epfr-pdf-ocr-converter workflow + activity
+        ├── pdf_ocr.py               # OCR conversion (PDF, PNG, JPG, JPEG) via Mistral OCR plugin, mapping update
+        ├── pdf_ocr_workflow.py      # epfr-ocr-converter workflow + 3 activities
         ├── ai_distiller.py          # AI distillation: Mistral Large structured extraction of dividend data
-        ├── ai_distiller_workflow.py # epfr-ai-distiller workflow + activity
+        ├── ai_distiller_workflow.py # epfr-ai-distiller workflow + 3 activities
         ├── share_payout_exporter.py # Join distilled dividends with share reference CSV
-        ├── share_payout_exporter_workflow.py # epfr-share-payout-exporter workflow + activity
+        ├── share_payout_exporter_workflow.py # epfr-share-payout-exporter workflow + 4 activities (incl. SQL)
         ├── workflow.py              # epfr-files-downloader workflow + 5 activities (main pipeline)
         └── prompts/                 # Prompt templates for AI distillation
             └── dividends_parsing.md
-output/                              # Downloaded files, mapping JSON, distilled JSON (gitignored)
+output/                              # Downloaded files, mapping JSON, distilled JSON, payout SQL (gitignored)
 Dockerfile                           # Container image for worker deployment
-generate_sql.py                      # Standalone: share_payouts_by_unp.json → SQL INSERT statements
 ```
 
 ## Local boundaries and invariants
@@ -68,7 +70,7 @@ generate_sql.py                      # Standalone: share_payouts_by_unp.json →
 - **Early termination:** Fetching stops when the API response has `last=True`, before reaching `max_pages`.
 - **Atomic writes:** All JSON output uses `tempfile.mkstemp()` → write → `os.replace()`. Keep this pattern for any new output files.
 - **OOXML detection in extractor:** ZIP files that are actually OOXML documents (docx, xlsx, pptx) are detected by internal markers (`[Content_Types].xml`, etc.) and renamed instead of extracted.
-- **PDF OCR split:** PDF conversion is a separate workflow (`epfr-pdf-ocr-converter`), not part of the main download pipeline. It reads the mapping JSON, OCRs PDF entries, and updates mapping entries to point at the resulting `.md` files.
+- **PDF OCR split:** PDF conversion is a separate workflow (`epfr-ocr-converter`), not part of the main download pipeline. It reads the mapping JSON, OCRs PDF entries, and updates mapping entries to point at the resulting `.md` files.
 - **AI distillation is separate:** AI extraction runs as its own workflow (`epfr-ai-distiller`), consuming the mapping JSON output from the download pipeline. It does not modify the mapping — it produces `ai_distilled_dividends.json`.
 - **Share payout export is separate:** Export runs as its own workflow (`epfr-share-payout-exporter`), joining `ai_distilled_dividends.json` with a share reference CSV. It produces `share_payouts_by_unp.json`.
 - **File lineage tracking:** The mapping JSON tracks `extracted_from` and `converted_from` fields so each entry knows its transformation chain (archive → extracted file → converted .md).
@@ -81,7 +83,7 @@ generate_sql.py                      # Standalone: share_payouts_by_unp.json →
 - **Changing archive extraction:** Edit `extractor.py`. New archive extensions go in `ARCHIVE_EXTENSIONS`. New OOXML markers go in `OOXML_MARKERS` / `OOXML_EXTENSION_MAP`.
 - **Changing document conversion:** Edit `converter.py`. Supports docx, doc, xls, xlsx. New types go in the extension dispatch.
 - **Changing markdown cleanup:** Edit `markdown_cleanup.py`. Affects both converter and OCR pipelines.
-- **Changing PDF OCR behavior:** Edit `pdf_ocr.py`. OCR model and concurrency in `config.py` (`OCR_MODEL`, `MAX_CONCURRENT_OCR`, `MAX_PDF_SIZE_BYTES`).
+- **Changing OCR behavior:** Edit `pdf_ocr.py` or `pdf_ocr_workflow.py`. OCR model, concurrency, and supported extensions in `config.py` (`OCR_MODEL`, `MAX_CONCURRENT_OCR`, `MAX_PDF_SIZE_BYTES`, `OCR_SUPPORTED_EXTENSIONS`).
 - **Changing AI distillation:** Edit `ai_distiller.py`. Model and retry tuning in `config.py` (`AI_MODEL`, `AI_MAX_RETRIES`, etc.). Prompt template at `prompts/dividends_parsing.md`.
 - **Changing share payout export:** Edit `share_payout_exporter.py`. Config constants in `config.py`.
 - **Changing output schema:** Edit `models.py` first, then update affected workflow and consumer modules.

@@ -9,9 +9,9 @@ Four independent workflows, each in its own entrypoint module:
 | Workflow | Entry module | Activities | Purpose |
 |----------|-------------|------------|---------|
 | `epfr-files-downloader` | `workflow.py` | 5 (inline) | Fetch pages → download → extract → convert → produce mapping JSON |
-| `epfr-pdf-ocr-converter` | `pdf_ocr_workflow.py` | 1 (inline) | OCR PDFs in mapped folders → update mapping entries to `.md` |
-| `epfr-ai-distiller` | `ai_distiller_workflow.py` | 1 (inline) | AI-extract structured dividends from `.md` files → produce distilled JSON |
-| `epfr-share-payout-exporter` | `share_payout_exporter_workflow.py` | 1 (inline) | Join distilled JSON with share CSV → produce `share_payouts_by_unp.json` |
+| `epfr-ocr-converter` | `pdf_ocr_workflow.py` | 3 | OCR files (PDF, PNG, JPG, JPEG) in mapped folders → update mapping entries to `.md` |
+| `epfr-ai-distiller` | `ai_distiller_workflow.py` | 3 | AI-extract structured dividends from `.md` files → produce distilled JSON |
+| `epfr-share-payout-exporter` | `share_payout_exporter_workflow.py` | 4 | Join distilled JSON with share CSV → export JSON → generate SQL INSERTs |
 
 ### epfr-files-downloader pipeline stages
 
@@ -23,43 +23,45 @@ Four independent workflows, each in its own entrypoint module:
 
 Early termination: fetching stops when API response has `last=True`.
 
-### epfr-pdf-ocr-converter pipeline
+### epfr-ocr-converter pipeline
 
 1. Read `unp_file_mapping.json`
-2. For each PDF entry: base64 encode → Mistral OCR → write `.md`
-3. Update mapping entries to point at `.md` files instead of PDFs
-4. Optionally cleanup source PDFs
+2. For each OCR-able entry (PDF, PNG, JPG, JPEG): base64 encode → Mistral OCR → write `.md`
+3. Update mapping entries to point at `.md` files instead of originals
+4. Optionally cleanup source files
 
-### epfr-ai-distiller pipeline
+### epfr-ai-distiller pipeline (3 activities)
 
-1. Read `unp_file_mapping.json`
-2. For each `.md` file: Mistral Large structured extraction → `EpfrDividendExtraction`
-3. Write `ai_distilled_dividends.json` with per-company, per-file dividend data
+1. `scan_ai_distiller_files` → read mapping JSON, collect `.md` entries to process (no AI calls)
+2. `process_ai_distillation` → sequential Mistral Large structured extraction → per-company/file dividend data (no file I/O; 2 h activity timeout)
+3. `finalize_ai_distillation` → atomic write of `ai_distilled_dividends.json`
 
-### epfr-share-payout-exporter pipeline
+### epfr-share-payout-exporter pipeline (4 activities)
 
-1. Load `shares_source_data.csv` → build UNP+share_kind → instrument_uuid index
-2. Read `ai_distilled_dividends.json`
-3. Flatten dividends, match against CSV index, skip ambiguous/autofilled entries
-4. Write `share_payouts_by_unp.json` with matched payout records
+1. `scan_share_payout_export` → load share reference CSV, build (unp, share_kind) → instrument index, load distilled JSON
+2. `process_share_payout_matching` → flatten dividends, match against CSV index, skip ambiguous/autofilled/file-error entries
+3. `finalize_share_payout_export` → atomic write of `share_payouts_by_unp.json`
+4. `generate_share_payout_sql` → read `share_payouts_by_unp.json` → write `share_dividends_insert.sql`
+
+SQL generation now runs **inside** the workflow (activity 4). The old standalone `generate_sql.py` has been removed.
 
 ## Module map
 
 | File | Role | Key exports |
 |------|------|-------------|
-| `config.py` | All constants and tuning knobs | `BASE_API_URL`, `FIRST_PAGE_NO`, `MAX_CONCURRENT_*`, `AI_MODEL`, `OCR_MODEL`, retry/timeout defaults, output filenames |
-| `models.py` | Pydantic data shapes for all 4 workflows | `EpfrRecord`, `EpfrApiResponse`, workflow I/O models, `EpfrDividendEntry`, `EpfrSharePayoutExportRow` |
+| `config.py` | All constants and tuning knobs | `BASE_API_URL`, `FIRST_PAGE_NO`, `MAX_CONCURRENT_*`, `AI_MODEL`, `OCR_MODEL`, `SHARE_DIVIDENDS_SQL_FILENAME`, retry/timeout defaults, output filenames |
+| `models.py` | Pydantic data shapes for all 4 workflows | `EpfrRecord`, `EpfrApiResponse`, workflow I/O models, `EpfrDividendEntry`, `EpfrSharePayoutExportRow`, scan/process result models |
 | `client.py` | HTTP client | `fetch_page()`, `download_all_files()`, `download_file()`, `_get_unp()` |
 | `detector.py` | Magic-byte file detection | `SIGNATURES`, detection function |
 | `extractor.py` | Archive extraction with OOXML detection | `extract_all_archives()`, `is_archive()`, `extract_zip()`, `extract_tar()` |
 | `converter.py` | Document → Markdown conversion | `convert_all_files()`, `convert_to_markdown()` |
 | `markdown_cleanup.py` | Remove token-heavy markdown artifacts | `clean_markdown_text()` |
-| `pdf_ocr.py` | PDF OCR and mapping update | `ocr_mapping_pdfs()`, `ocr_pdf_to_markdown()`, `mistralai_ocr()` |
-| `pdf_ocr_workflow.py` | PDF OCR workflow | `EpfrPdfOcrConverter` class, `ocr_epfr_mapping_pdfs` activity |
-| `ai_distiller.py` | AI structured extraction | `run_ai_distillation()`, `EpfrAiDistiller` (internal) |
-| `ai_distiller_workflow.py` | AI distiller workflow | `EpfrAiDistillerWorkflow` class, `distill_epfr_dividends` activity |
-| `share_payout_exporter.py` | CSV loading, dividend flattening, atomic export | `run_share_payout_export()`, `load_share_reference_index()` |
-| `share_payout_exporter_workflow.py` | Share payout export workflow | `EpfrSharePayoutExporterWorkflow` class, `export_share_payouts` activity |
+| `pdf_ocr.py` | OCR conversion and mapping update | `ocr_mapping_files()`, `ocr_file_to_markdown()`, `mistralai_ocr()` (supports PDF, PNG, JPG, JPEG) |
+| `pdf_ocr_workflow.py` | OCR workflow | `EpfrOcrConverter` class, 3 activities: `scan_ocr_entries`, `process_ocr_files`, `finalize_ocr_mapping` |
+| `ai_distiller.py` | AI structured extraction helpers | `AIDistiller`, `normalize_and_fill_dividend` |
+| `ai_distiller_workflow.py` | AI distiller workflow | `EpfrAiDistillerWorkflow` class, 3 activities: `scan_ai_distiller_files`, `process_ai_distillation`, `finalize_ai_distillation` |
+| `share_payout_exporter.py` | CSV loading, dividend flattening, atomic export | `run_share_payout_export()`, `load_share_reference_index()`, `_make_csv_key()` |
+| `share_payout_exporter_workflow.py` | Share payout export workflow | `EpfrSharePayoutExporterWorkflow` class, 4 activities: `scan_share_payout_export`, `process_share_payout_matching`, `finalize_share_payout_export`, `generate_share_payout_sql` |
 | `prompts/dividends_parsing.md` | AI prompt template | Template with placeholders for document text and reference date |
 | `workflow.py` | Main pipeline workflow | `EpfrFilesDownloader` class, 5 inline activities |
 
@@ -84,25 +86,46 @@ save_unp_mapping(records, output_dir, download_stats, extraction_stats, conversi
   output: str  (path to unp_file_mapping.json)
 ```
 
-### epfr-pdf-ocr-converter
+### epfr-ocr-converter
 
 ```
-ocr_epfr_mapping_pdfs(input: EpfrPdfOcrInput)
-  output: dict  {mapping_path, total_pdf_entries, total_successful, total_failed, total_skipped, cleaned_up_files, failed_files}
+scan_ocr_entries(input: EpfrOcrInput)
+  output: OcrScanResult  {mapping_path, mapping_raw, total_unps_scanned, total_ocr_entries, work_items, by_unp, output_dir, mapping_filename, cleanup_source}
+
+process_ocr_files(output_root: str, scan_result: OcrScanResult, overwrite: bool)
+  output: OcrProcessResult  {updated_mapping, results, total_successful, total_failed, total_skipped, failed_files, skipped_files, cleaned_up_files}
+
+finalize_ocr_mapping(output_root: str, mapping_filename: str, process_result: OcrProcessResult, cleanup_source: bool)
+  output: dict  {mapping_path, total_ocr_entries, total_successful, total_failed, total_skipped, cleaned_up_files, failed_files, by_unp}
 ```
 
 ### epfr-ai-distiller
 
 ```
-distill_epfr_dividends(input: EpfrAiDistillerInput)
-  output: dict  {output_path, total_companies, total_files, successful, failed}
+scan_ai_distiller_files(input: EpfrAiDistillerInput)
+  output: AiDistillerScanResult   (mapping entries + collected markdown work items; no AI calls)
+
+process_ai_distillation(scan_result: AiDistillerScanResult)
+  output: AiDistillerProcessResult   (per-company/file extracted dividends; no file I/O; 2 h timeout)
+
+finalize_ai_distillation(scan_result: AiDistillerScanResult, process_result: AiDistillerProcessResult)
+  output: dict[str, Any]   {output_path, total_companies, total_files, successful, failed}  (atomic write of ai_distilled_dividends.json)
 ```
 
 ### epfr-share-payout-exporter
 
 ```
-export_share_payouts(input: EpfrSharePayoutExportInput)
-  output: dict  {output_path, matched_payouts, unmatched_payouts, missing_csv_unp, missing_share_kind, ambiguous_share_kind, total_companies_exported, unmatched_samples}
+scan_share_payout_export(input: EpfrSharePayoutExportInput)
+  output: SharePayoutScanResult   (CSV lookup index + loaded distilled data)
+
+process_share_payout_matching(scan_result: SharePayoutScanResult)
+  output: SharePayoutProcessResult   (matched export rows + unmatched/ambiguous stats)
+
+finalize_share_payout_export(scan_result: SharePayoutScanResult, process_result: SharePayoutProcessResult)
+  output: dict[str, Any]   {output_path, matched_payouts, unmatched_payouts, missing_csv_unp, ...}  (atomic write of share_payouts_by_unp.json)
+
+generate_share_payout_sql(scan_result: SharePayoutScanResult, final_stats: dict[str, Any])
+  output: dict[str, Any]   {sql_path, sql_records, ...}  (writes share_dividends_insert.sql)
 ```
 
 ## Activity boundaries
@@ -117,31 +140,38 @@ export_share_payouts(input: EpfrSharePayoutExportInput)
 | `convert_all_epfr_files` | None | Filesystem, subprocess (antiword/catdoc for .doc) |
 | `save_unp_mapping` | None | Filesystem |
 
-### pdf_ocr_workflow.py
+### pdf_ocr_workflow.py (epfr-ocr-converter)
 
 | Activity | Env vars read | External calls |
 |----------|---------------|----------------|
-| `ocr_epfr_mapping_pdfs` | None | Mistral OCR API, Filesystem |
+| `scan_ocr_entries` | None | Filesystem (read mapping) |
+| `process_ocr_files` | None | Mistral OCR API, Filesystem |
+| `finalize_ocr_mapping` | None | Filesystem (atomic mapping write) |
 
-### ai_distiller_workflow.py
-
-| Activity | Env vars read | External calls |
-|----------|---------------|----------------|
-| `distill_epfr_dividends` | `MISTRAL_API_KEY` (via Mistral client) | Mistral chat API |
-
-### share_payout_exporter_workflow.py
+### ai_distiller_workflow.py (epfr-ai-distiller)
 
 | Activity | Env vars read | External calls |
 |----------|---------------|----------------|
-| `export_share_payouts` | None | Filesystem (CSV + JSON read/write) |
+| `scan_ai_distiller_files` | None | Filesystem (read mapping) |
+| `process_ai_distillation` | `MISTRAL_API_KEY` (via Mistral client) | Mistral chat API |
+| `finalize_ai_distillation` | None | Filesystem (atomic write) |
+
+### share_payout_exporter_workflow.py (epfr-share-payout-exporter)
+
+| Activity | Env vars read | External calls |
+|----------|---------------|----------------|
+| `scan_share_payout_export` | None | Filesystem (CSV + JSON read) |
+| `process_share_payout_matching` | None | None (in-memory join) |
+| `finalize_share_payout_export` | None | Filesystem (atomic JSON write) |
+| `generate_share_payout_sql` | None | Filesystem (read JSON → write `.sql`) |
 
 ## Cross-module dependencies
 
 ```
 workflow.py → client.py, config.py, models.py, extractor.py, converter.py
-pdf_ocr_workflow.py → pdf_ocr.py, models.py
-ai_distiller_workflow.py → ai_distiller.py, models.py
-share_payout_exporter_workflow.py → share_payout_exporter.py, models.py
+pdf_ocr_workflow.py → pdf_ocr.py, models.py (uses EpfrOcrInput, OcrScanResult, OcrProcessResult, OcrFileResult, OcrWorkItem)
+ai_distiller_workflow.py → ai_distiller.py (AIDistiller, normalize_and_fill_dividend), config.py, models.py
+share_payout_exporter_workflow.py → share_payout_exporter.py (load_share_reference_index, _make_csv_key), config.py, models.py
 client.py → config.py, detector.py, models.py
 extractor.py → (standalone, stdlib only)
 converter.py → markdown_cleanup.py (standalone, uses python-docx, xlrd, openpyxl, docx2txt)
@@ -157,13 +187,14 @@ No circular imports. `config.py`, `models.py`, `detector.py`, `extractor.py`, an
 
 ### config.py
 - Single source of truth for all tuning knobs across all 4 workflows. Do not hardcode values elsewhere.
-- Groups: API URLs, download concurrency, retry, OCR limits, AI model settings, output filenames, share export paths.
+- Groups: API URLs, download concurrency, retry, OCR limits, AI model settings, output filenames, SQL output filename (`SHARE_DIVIDENDS_SQL_FILENAME`), share export paths.
 
 ### models.py
 - Edit this first when changing any workflow's data schema. Contains all I/O models for all 4 workflows plus API response models and AI extraction models.
 - `EpfrDividendEntry` has a `model_validator` enforcing business rules (period numbering, date ordering). Changes to the validation logic here affect both AI distillation output and test expectations.
 - AI models (`EpfrDividendExtraction`, `EpfrAiDistilledFile`, `EpfrAiDistilledCompany`) define the structured extraction schema — must be compatible with `prompts/dividends_parsing.md`.
 - `EpfrSharePayoutExportRow` defines the DB-ready payout format.
+- Scan/process result models (`AiDistillerScanResult`, `AiDistillerProcessResult`, `SharePayoutScanResult`, `SharePayoutProcessResult`) are the inter-activity contracts for the multi-step workflows — changing them touches the activity call chain and tests.
 
 ### client.py
 - `_get_unp()`: determines UNP from record (holder.unp → organization.unp fallback). Used by `workflow.py` for mapping.
@@ -190,25 +221,29 @@ No circular imports. `config.py`, `models.py`, `detector.py`, `extractor.py`, an
 - Used by both `converter.py` and `pdf_ocr.py` for consistent markdown output.
 
 ### pdf_ocr.py
-- `ocr_pdf_to_markdown()`: reads PDF, base64 encodes, submits to Mistral OCR as data URI. Size guard at `MAX_PDF_SIZE_BYTES` (50 MiB).
-- `ocr_mapping_pdfs()`: reads mapping JSON, finds PDF entries, OCRs them, updates mapping to point at `.md` files, optionally cleans up source PDFs.
+- `ocr_file_to_markdown()`: reads file (PDF, PNG, JPG, JPEG), base64 encodes, submits to Mistral OCR as data URI with appropriate MIME type. Size guard at `MAX_PDF_SIZE_BYTES` (50 MiB).
+- `ocr_mapping_files()`: reads mapping JSON, finds OCR-able entries (PDF, PNG, JPG, JPEG), OCRs them, updates mapping to point at `.md` files, optionally cleans up source files.
 - `mistralai_ocr()`: thin wrapper converting dict payload to Mistral plugin's `OCRRequest` model.
 - Concurrency: `MAX_CONCURRENT_OCR = 2` to avoid rate limits.
 - Uses `markdown_cleanup.clean_markdown_text()` for output.
+- Backward compatibility: `ocr_pdf_to_markdown` and `ocr_mapping_pdfs` are aliases to the new functions.
 
 ### ai_distiller.py
-- Processes companies and files sequentially with configurable delays (`AI_FILE_DELAY`) to avoid rate limits.
+- `AIDistiller`: sequential processing of companies/files with configurable delays (`AI_FILE_DELAY`) to avoid rate limits.
 - Retry: `AI_MAX_RETRIES` with exponential backoff for transient errors (503, 502, 429, timeout, overload).
 - `autofilled_fields` tracking: records which fields were inferred vs explicitly extracted, for downstream quality review.
+- Consumed by `ai_distiller_workflow.py`'s `process_ai_distillation` activity.
 
 ### share_payout_exporter.py
 - `load_share_reference_index()`: parses CSV, builds (unp, share_kind) → instrument_uuid index, excludes ambiguous keys.
-- `run_share_payout_export()`: flattens dividends, matches against index, skips autofilled/ambiguous/file-error entries.
+- `_make_csv_key()`: shared key builder, also imported by the workflow module.
+- `run_share_payout_export()`: legacy single-call entrypoint (the workflow now uses the 4 separate activities instead).
 - Atomic write pattern: `tempfile.mkstemp()` → write → `os.replace()`.
-- Returns detailed stats including unmatched samples for debugging.
 
 ### share_payout_exporter_workflow.py
-- Thin wrapper: calls `run_share_payout_export()`, maps result to `EpfrSharePayoutExportOutput`.
+- Orchestrates 4 activities (scan → match → finalize JSON → generate SQL). Activities are defined inline in this module.
+- `generate_share_payout_sql` reads the just-written `share_payouts_by_unp.json` and emits `share_dividends_insert.sql`. This replaced the removed standalone `generate_sql.py`.
+- Atomic writes for both JSON and SQL outputs.
 
 ### prompts/dividends_parsing.md
 - Prompt template for Mistral Large structured extraction.
@@ -216,15 +251,16 @@ No circular imports. `config.py`, `models.py`, `detector.py`, `extractor.py`, an
 
 ## Key patterns
 
-- **Atomic writes**: `tempfile.mkstemp()` → write → `os.replace()`. Used in `workflow.py` (save_unp_mapping), `pdf_ocr.py` (mapping update), `ai_distiller.py` (distilled output), `share_payout_exporter.py` (payout export).
+- **Atomic writes**: `tempfile.mkstemp()` → write → `os.replace()`. Used in `workflow.py` (save_unp_mapping), `pdf_ocr_workflow.py` (finalize_ocr_mapping), `ai_distiller_workflow.py` (finalize_ai_distillation), `share_payout_exporter_workflow.py` (finalize JSON + generate SQL).
+- **Multi-step activities for UI progress**: OCR (3), AI distiller (3), share payout exporter (4) each split scan/process/finalize so the Mistral Workflows UI can show per-step progress. Process steps do no file I/O; finalize steps own the atomic write.
 - **File lineage tracking**: mapping entries carry `extracted_from` (archive → extracted file) and `converted_from` (source → .md) fields. `save_unp_mapping` resolves the full transformation chain.
 - **UNP folder naming**: direct UNP string from API (not hashed). Files live in `output/<UNP>/`.
 - **Cleanup-on-success**: converter and PDF OCR both support removing source files after successful transformation, controlled by `cleanup_source` flag.
-- **Concurrency via Semaphore**: downloads (10), extractions (10), OCR (2). No concurrency limit for AI distillation or share export (sequential by design).
+- **Concurrency via Semaphore**: downloads (10), extractions (10), OCR (2). AI distillation and share export are sequential by design.
 
 ## Tests
 
-15 test modules in `src/tests/` cover all major components. Run with `make test` from inside `epfr-downloader/`.
+18 test modules in `src/tests/` cover all major components. Run with `make test` from inside `epfr-downloader/`.
 
 **Note:** `test_pdf_ocr.py` is skipped by default (requires Mistral OCR API credentials).
 
@@ -235,11 +271,13 @@ When modifying any module, run the corresponding test file:
 - `extractor.py` → `test_extractor.py`
 - `converter.py` → `test_converter.py`
 - `markdown_cleanup.py` → `test_markdown_cleanup.py`
-- `pdf_ocr.py` → `test_pdf_ocr.py` (skipped by default), `test_pdf_ocr_mapping.py`
-- `pdf_ocr_workflow.py` → `test_pdf_ocr_workflow.py`
+- `pdf_ocr.py` → `test_pdf_ocr.py` (skipped by default), `test_pdf_ocr_mapping.py` (tests OCR for PDF, PNG, JPG, JPEG)
+- `pdf_ocr_workflow.py` → `test_pdf_ocr_workflow.py` (tests OCR workflow for all supported types)
 - `ai_distiller.py` → `test_ai_distiller.py`
+- `ai_distiller_workflow.py` → `test_ai_distiller_workflow.py` (3 activities: scan/process/finalize)
 - `share_payout_exporter.py` → `test_share_payout_exporter.py`
-- `share_payout_exporter_workflow.py` → `test_workflow_wrappers.py`
+- `share_payout_exporter_workflow.py` → `test_share_payout_exporter_workflow.py` (4 activities incl. SQL generation)
 - `models.py` → `test_models.py`
-- `workflow.py` → `test_workflow_wrappers.py`
+- `workflow.py` → `test_workflow_activities.py` (activities) + `test_workflow_wrappers.py` (wrapper + `save_unp_mapping`)
 - `discover.py` / `start.py` → `test_start_cli.py`
+- fixture completeness → `test_fixture_inventory.py`

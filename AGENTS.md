@@ -28,11 +28,10 @@ workflows/                          # Repository root
     ├── Makefile                    # start-worker, execute, lint, test, docker-build, docker-run
     ├── pyproject.toml              # Runtime deps: mistralai-workflows, pydantic, aiohttp, etc.
     ├── Dockerfile                  # Container image for worker deployment
-    ├── generate_sql.py             # Standalone script: share_payouts_by_unp.json → SQL INSERTs
     ├── AGENTS.md                   # Project-local module map and change rules
     └── src/
         ├── discover.py             # Auto-discovers workflow classes, starts Mistral worker
-        ├── tests/                  # Unit tests (15 modules, see epfr-downloader/AGENTS.md)
+        ├── tests/                  # Unit tests (18 modules, see epfr-downloader/AGENTS.md)
         └── workflows/
             ├── start.py            # CLI trigger for workflow execution
             └── epfr/               # 4 workflows: download, OCR, AI-distill, share payout export
@@ -44,7 +43,7 @@ workflows/                          # Repository root
 - **Two `uv` environments.** Root `.venv` (ruff + ty tooling). `epfr-downloader/.venv` (runtime deps).
 - **Workflow sandbox rule.** The Mistral runtime restricts `os.environ` access inside workflow classes. All env var reads must happen inside `@workflows.activity()` functions.
 - **Auto-discovery contract.** `discover.py` scans `src/workflows/` for classes with `__workflows_workflow_def`. New workflows must be in a subpackage under `src/workflows/` with a class decorated `@workflows.workflow.define(...)`.
-- **Four workflows.** `epfr-files-downloader`, `epfr-pdf-ocr-converter`, `epfr-ai-distiller`, `epfr-share-payout-exporter`.
+- **Four workflows.** `epfr-files-downloader`, `epfr-ocr-converter`, `epfr-ai-distiller`, `epfr-share-payout-exporter`. The exporter also emits `share_dividends_insert.sql` (SQL generation is its 4th activity, `generate_share_payout_sql`).
 
 ## Change rules
 
