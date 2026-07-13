@@ -32,7 +32,7 @@ Five logical components, arranged as a linear pipeline with sequential data-flow
 
 1. **API Client & Discovery** — Fetches paginated records from `epfr.gov.by`, downloads raw binary files, detects file types by magic bytes. Entrypoint: `client.py`, `detector.py`.
 2. **File Processing Pipeline** (`epfr-files-downloader` workflow) — Extracts archives, converts office documents to Markdown, produces `unp_file_mapping.json`. Entrypoint: `workflow.py`.
-3. **PDF OCR Converter** (`epfr-pdf-ocr-converter` workflow) — OCRs PDF entries from the mapping via Mistral OCR, updates mapping to reference `.md` files. Entrypoint: `pdf_ocr_workflow.py`.
+3. **OCR Converter** (`epfr-ocr-converter` workflow) — OCRs PDF/image entries (PDF, PNG, JPG, JPEG) from the mapping via Mistral OCR, updates mapping to reference `.md` files. Entrypoint: `pdf_ocr_workflow.py`.
 4. **AI Distiller** (`epfr-ai-distiller` workflow) — Extracts structured dividend records from Markdown via Mistral Large, produces `ai_distilled_dividends.json`. Entrypoint: `ai_distiller_workflow.py`.
 5. **Share Payout Exporter** (`epfr-share-payout-exporter` workflow) — Joins distilled dividends with a share reference CSV, produces `share_payouts_by_unp.json`. Entrypoint: `share_payout_exporter_workflow.py`.
 
@@ -71,7 +71,6 @@ workflows/                              # Repository root
     ├── pyproject.toml                  # Runtime deps: mistralai-workflows, aiohttp, pydantic, etc.
     ├── Makefile                        # start-worker, execute, lint, test, docker-build/run
     ├── Dockerfile                      # Multi-stage build; CMD = discover.py
-    ├── generate_sql.py                 # Standalone: share_payouts JSON → SQL INSERTs
     ├── AGENTS.md                       # Project-local module map and change rules
     │
     └── src/
@@ -91,7 +90,7 @@ workflows/                              # Repository root
                 ├── markdown_cleanup.py # Token-heavy markdown artifact removal
                 ├── workflow.py         # epfr-files-downloader workflow (5 activities)
                 ├── pdf_ocr.py          # PDF OCR via Mistral plugin
-                ├── pdf_ocr_workflow.py # epfr-pdf-ocr-converter workflow (3 activities)
+                ├── pdf_ocr_workflow.py # epfr-ocr-converter workflow (3 activities)
                 ├── ai_distiller.py     # AI structured extraction logic
                 ├── ai_distiller_workflow.py  # epfr-ai-distiller workflow (4 activities)
                 ├── share_payout_exporter.py  # CSV join + export logic
@@ -115,7 +114,7 @@ workflows/                              # Repository root
 | Unit tests | `epfr-downloader/src/tests/` |
 | Ruff / ty configuration | `pyproject.toml` (root) |
 | Docker image definition | `epfr-downloader/Dockerfile` |
-| SQL generation script | `epfr-downloader/generate_sql.py` |
+| SQL generation | `epfr-downloader/src/workflows/epfr/share_payout_exporter_workflow.py` (activity `generate_share_payout_sql`) |
 | Share reference CSV | `shares_source_data.csv` (root) |
 
 ## 4. Life of a Request / Primary Data Flow
@@ -153,7 +152,7 @@ start.py → Mistral runtime → EpfrFilesDownloader.run()
 ### Downstream pipelines (invoked separately)
 
 ```
-epfr-pdf-ocr-converter (3 activities):
+epfr-ocr-converter (3 activities):
   scan_pdf_entries → process_pdf_ocr → finalize_ocr_mapping
   read unp_file_mapping.json → OCR each PDF via Mistral → update mapping to .md
 
@@ -166,10 +165,11 @@ epfr-share-payout-exporter (4 activities):
   read ai_distilled_dividends.json + shares_source_data.csv → share_payouts_by_unp.json
 ```
 
-### Standalone post-processing
+### SQL generation (in-workflow)
 
 ```
-generate_sql.py: share_payouts_by_unp.json → share_dividends_insert.sql
+epfr-share-payout-exporter activity generate_share_payout_sql:
+  share_payouts_by_unp.json → share_dividends_insert.sql
 ```
 
 ### Data artifact flow
@@ -180,7 +180,7 @@ epfr.gov.by API → output/<UNP>/*.{pdf,docx,...}
                 → output/<UNP>/*.md
                 → output/ai_distilled_dividends.json
                 → output/share_payouts_by_unp.json
-                → output/share_dividends_insert.sql (via generate_sql.py)
+                → output/share_dividends_insert.sql (via generate_share_payout_sql activity)
 ```
 
 All JSON outputs use atomic writes (`tempfile.mkstemp()` → `os.replace()`) (`Observed` in `workflow.py`, `pdf_ocr_workflow.py`, `ai_distiller_workflow.py`, `share_payout_exporter_workflow.py`).

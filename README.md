@@ -42,7 +42,7 @@ output/ai_distilled_dividends.json              ← structured dividend records 
 output/share_payouts_by_unp.json                ← matched payout records (UNP + share kind → instrument)
     │
     ▼
-output/share_dividends_insert.sql               ← SQL INSERT statements (via generate_sql.py)
+output/share_dividends_insert.sql               ← SQL INSERT statements (in-workflow: generate_share_payout_sql activity)
 ```
 
 ### Key data artifacts
@@ -51,10 +51,10 @@ output/share_dividends_insert.sql               ← SQL INSERT statements (via g
 |----------|-------------|-------------|
 | `output/<UNP>/*` | `epfr-files-downloader` | Raw files downloaded from EPFR, organized by company tax ID (UNP) |
 | `unp_file_mapping.json` | `epfr-files-downloader` | Maps every UNP to its disclosure files with full transformation lineage (`extracted_from`, `converted_from`) |
-| `*.md` (per UNP folder) | `epfr-pdf-ocr-converter` | All documents (including PDFs) converted to clean Markdown |
+| `*.md` (per UNP folder) | `epfr-ocr-converter` | All documents (including PDFs) converted to clean Markdown |
 | `ai_distilled_dividends.json` | `epfr-ai-distiller` | Structured dividend data: issuer, share class, amount per share, total amount, record date, payment period |
 | `share_payouts_by_unp.json` | `epfr-share-payout-exporter` | Dividend payouts matched against share reference CSV, keyed by UNP |
-| `share_dividends_insert.sql` | `generate_sql.py` | Ready-to-load SQL INSERT statements for downstream databases |
+| `share_dividends_insert.sql` | `epfr-share-payout-exporter` (activity `generate_share_payout_sql`) | Ready-to-load SQL INSERT statements for downstream databases |
 
 ## Pipeline flow
 
@@ -68,7 +68,7 @@ flowchart LR
         A4 --> A5["Save\nunp_file_mapping.json"]
     end
 
-    subgraph W2["2. epfr-pdf-ocr-converter"]
+    subgraph W2["2. epfr-ocr-converter"]
         direction TB
         B1["Read mapping JSON"] --> B2["OCR each PDF\nvia Mistral OCR"]
         B2 --> B3["Write Markdown files\nupdate mapping"]
@@ -90,7 +90,7 @@ flowchart LR
     W2 -->|"updated mapping\n+ Markdown files"| W3
     W3 -->|"ai_distilled_dividends.json"| W4
 
-    W4 -.->|"generate_sql.py"| SQL["share_dividends_insert.sql"]
+    W4 ==>|"generate_share_payout_sql (activity 4)"| SQL["share_dividends_insert.sql"]
 
     style W1 fill:#e1f5ff,stroke:#6c8ebf
     style W2 fill:#d4edda,stroke:#82c991
@@ -175,7 +175,7 @@ Fetches paginated disclosure records from the EPFR REST API, downloads raw binar
 | Convert | `convert_all_epfr_files` | Office docs → Markdown, `.doc` fallback chain (python-docx → docx2txt → antiword) |
 | Map | `save_unp_mapping` | Atomic write of mapping JSON with transformation chain per file |
 
-### 2. `epfr-pdf-ocr-converter`
+### 2. `epfr-ocr-converter`
 
 Reads the mapping JSON, OCRs each PDF entry via Mistral OCR API, writes Markdown output, and updates mapping entries to reference the `.md` files. Supports optional cleanup of source PDFs after successful conversion. Concurrency-limited to 2 parallel OCR requests.
 
@@ -187,9 +187,9 @@ Reads the mapping JSON and processes each Markdown file through Mistral Large fo
 
 Joins `ai_distilled_dividends.json` with a share reference CSV (`shares_source_data.csv`) to match dividend records to specific financial instruments by UNP and share kind. Skips ambiguous, autofilled, and file-error entries. Produces `share_payouts_by_unp.json` with DB-ready payout records and detailed match statistics.
 
-### Post-processing: `generate_sql.py`
+### SQL generation (`generate_share_payout_sql` activity)
 
-Standalone script that converts `share_payouts_by_unp.json` into `share_dividends_insert.sql` — ready-to-load SQL INSERT statements.
+The exporter's 4th activity, `generate_share_payout_sql`, runs **inside** the `epfr-share-payout-exporter` workflow. It reads the just-written `share_payouts_by_unp.json` and emits `share_dividends_insert.sql` — ready-to-load SQL INSERT statements. The old standalone `generate_sql.py` has been removed.
 
 ## Validation
 
