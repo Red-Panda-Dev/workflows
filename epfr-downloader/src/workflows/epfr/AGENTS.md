@@ -2,6 +2,10 @@
 
 Pipeline internals for the four EPFR workflows. Covers data flow between modules, activity boundaries, data contracts, and per-file editing rules.
 
+## Scope and inheritance
+
+Applies to: `epfr-downloader/src/workflows/epfr/` (the four workflow modules and their helpers). Inherits from `epfr-downloader/AGENTS.md` → root `AGENTS.md`. This file is the source of truth for activity boundaries, data contracts, and per-file editing rules; it contains no parent-rule overrides.
+
 ## Workflow overview
 
 Four independent workflows, each in its own entrypoint module:

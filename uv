@@ -1,9 +1,21 @@
-#!/bin/bash
-# Wrapper for uv that automatically adds --active flag
-# This ensures uv always uses the currently active virtual environment
+#!/usr/bin/env bash
+# Wrapper for uv that prefers the active virtual environment for commands that
+# support --active. uv treats --active as a command-specific option, not a
+# global option, so it must be placed after the subcommand.
 
-# Hardcoded path to the real uv binary
 REAL_UV="/home/homer/.local/bin/uv"
 
-# Execute uv with --active flag (must come before the subcommand)
-exec "$REAL_UV" --active "$@"
+case "${1:-}" in
+    add|run|sync)
+        # Avoid passing --active twice if the caller already provided it.
+        for arg in "${@:2}"; do
+            if [ "$arg" = "--active" ]; then
+                exec "$REAL_UV" "$@"
+            fi
+        done
+        exec "$REAL_UV" "$1" --active "${@:2}"
+        ;;
+    *)
+        exec "$REAL_UV" "$@"
+        ;;
+esac
