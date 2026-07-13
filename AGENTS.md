@@ -84,13 +84,15 @@ cd epfr-downloader && make execute-share-payout-exporter input='{"output_dir": "
 cd epfr-downloader && make docker-build && make docker-run
 ```
 
-## Key docs
+## Context routing
 
-- `ARCHITECTURE.md` — full code map, logical layers, data flow, architectural invariants
-- `epfr-downloader/AGENTS.md` — project-local module map, change rules, invariants
-- `epfr-downloader/src/workflows/epfr/AGENTS.md` — pipeline internals, data contracts, activity boundaries
-- `README.md` — setup, commands, and high-level usage
-- `.skills/python_docs_and_comments.md` — Python comment and docstring policy (Google-style, applies to all `.py` files)
+Read only when relevant:
+
+- Architectural / cross-module changes → `ARCHITECTURE.md` (system map, layers, dependency direction, data flow). For exact activity names, counts, and data contracts, cross-check `epfr-downloader/src/workflows/epfr/AGENTS.md` — the higher-level docs can lag the source on those details.
+- Project-local module map, invariants, make targets → `epfr-downloader/AGENTS.md`
+- Per-file editing rules, activity signatures, data contracts → `epfr-downloader/src/workflows/epfr/AGENTS.md`
+- Setup and usage → `README.md`
+- Docstring / comment policy (Google-style) → `.skills/python_docs_and_comments.md`
 
 ## CI
 
@@ -105,3 +107,4 @@ cd epfr-downloader && make docker-build && make docker-run
 - Env vars are loaded from project-local `.env`; `MISTRAL_API_KEY` is required.
 - Docker volume mounts `epfr-downloader/output` to `/app/output` — outputs persist outside container.
 - `shares_source_data.csv` at repo root is the share reference input for the payout exporter workflow.
+- **Higher-level docs can lag on activity-level detail.** `ARCHITECTURE.md`/`README.md` may not yet reflect exact activity names or counts; for those, trust `epfr-downloader/src/workflows/epfr/AGENTS.md` and the source.

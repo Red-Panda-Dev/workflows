@@ -1,6 +1,8 @@
 # AGENTS.md
 
-## Scope
+## Scope and inheritance
+
+Applies to: `epfr-downloader/` (the runtime project). Inherits repo-wide guidance from the root `AGENTS.md` (workspace layout, two-env rule, ruff config, validation commands). This file adds only the project-local module map and per-area change rules; it does not override any parent rule.
 
 The EPFR Files Downloader — a set of Mistral Workflows that fetch paginated disclosure records from the `epfr.gov.by` REST API, download each record's raw file content, extract archives, convert office documents to Markdown, OCR PDFs via Mistral, AI-distill structured dividend data, export share payouts, and produce JSON mappings organized by company UNP.
 
