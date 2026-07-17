@@ -32,9 +32,16 @@ from workflows.epfr.ai_distiller_workflow import (
 from workflows.epfr.models import EpfrAiDistillerInput, EpfrAiDistillerOutput, EpfrDividendEntry
 
 
-def test_normalize_and_fill_dividend_rejects_missing_period_year_without_date():
-    with pytest.raises(ValueError, match="period_year"):
-        normalize_and_fill_dividend(_RawDividendEntry(amount_per_share="0.1234"), upload_date="2026-05-04")
+def test_normalize_and_fill_dividend_calculates_missing_period_year_from_upload_date():
+    normalized, warnings = normalize_and_fill_dividend(
+        _RawDividendEntry(amount_per_share="0.1234"), upload_date="2026-05-04"
+    )
+
+    assert normalized.period_year == 2025
+    assert normalized.decision_date == date(2026, 4, 4)
+    assert normalized.record_date == date(2026, 3, 4)
+    assert normalized.payment_date == date(2026, 6, 4)
+    assert "period_year_defaulted" in warnings
 
 
 def test_normalize_and_fill_dividend_keeps_provided_dates():
@@ -79,7 +86,7 @@ def test_normalize_and_fill_dividend_rounds_high_precision_amount_to_model_preci
     assert autofilled == []
 
 
-def test_normalize_and_fill_dividend_keeps_zero_payment_date_null():
+def test_normalize_and_fill_dividend_calculates_zero_payment_date():
     raw = _RawDividendEntry(
         share_type="common",
         period_year=2025,
@@ -92,8 +99,8 @@ def test_normalize_and_fill_dividend_keeps_zero_payment_date_null():
 
     normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
 
-    assert normalized.payment_date is None
-    assert warnings == []
+    assert normalized.payment_date == date(2025, 3, 29)
+    assert warnings == ["payment_date_defaulted"]
 
 
 def test_dividend_entry_rejects_invalid_date_ordering():
@@ -290,7 +297,7 @@ def test_normalize_and_fill_dividend_handles_leap_day_when_bumping_year(monkeypa
     assert autofilled == []
 
 
-def test_normalize_and_fill_dividend_nulls_payment_date_when_same_as_decision_date():
+def test_normalize_and_fill_dividend_recalculates_payment_date_when_same_as_decision_date():
     raw = _RawDividendEntry(
         period_year=2025,
         period_type="quarterly",
@@ -303,11 +310,12 @@ def test_normalize_and_fill_dividend_nulls_payment_date_when_same_as_decision_da
 
     normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
 
-    assert normalized.payment_date is None
+    assert normalized.payment_date == date(2025, 6, 10)
     assert "payment_date_not_after_decision_date" in warnings
+    assert "payment_date_defaulted" in warnings
 
 
-def test_normalize_and_fill_dividend_nulls_payment_date_when_before_decision_date():
+def test_normalize_and_fill_dividend_recalculates_payment_date_when_before_decision_date():
     raw = _RawDividendEntry(
         period_year=2025,
         period_type="quarterly",
@@ -320,11 +328,12 @@ def test_normalize_and_fill_dividend_nulls_payment_date_when_before_decision_dat
 
     normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
 
-    assert normalized.payment_date is None
+    assert normalized.payment_date == date(2025, 6, 10)
     assert "payment_date_not_after_decision_date" in warnings
+    assert "payment_date_defaulted" in warnings
 
 
-def test_normalize_and_fill_dividend_nulls_record_date_when_after_decision_date():
+def test_normalize_and_fill_dividend_recalculates_record_date_when_after_decision_date():
     raw = _RawDividendEntry(
         period_year=2025,
         period_type="quarterly",
@@ -337,8 +346,9 @@ def test_normalize_and_fill_dividend_nulls_record_date_when_after_decision_date(
 
     normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
 
-    assert normalized.record_date is None
+    assert normalized.record_date == date(2025, 3, 10)
     assert "record_date_after_decision_date" in warnings
+    assert "record_date_defaulted" in warnings
 
 
 class _FixedNowDateTime(datetime):
@@ -545,7 +555,7 @@ def test_run_ai_distillation_uses_fixtures_without_network(
                 {
                     "amount_per_share": "0.007337",
                     "decision_date": "2025-03-31",
-                    "record_date": None,
+                    "record_date": "2025-02-28",
                     "payment_date": "2027-04-22",
                 }
             ],
@@ -558,7 +568,7 @@ def test_run_ai_distillation_uses_fixtures_without_network(
                 {
                     "amount_per_share": "0.0124",
                     "decision_date": "2025-03-30",
-                    "record_date": None,
+                    "record_date": "2025-02-28",
                     "payment_date": "2025-04-22",
                 }
             ],
@@ -813,7 +823,7 @@ class TestNormalizeAndFillDividendEdgeCases:
         assert normalized.period_year == 2024
         assert "period_year_defaulted" in warnings
 
-    def test_none_decision_date_remains_null(self):
+    def test_none_decision_date_uses_upload_date(self):
         raw = _RawDividendEntry(
             period_year=2025,
             period_type="annual",
@@ -823,23 +833,23 @@ class TestNormalizeAndFillDividendEdgeCases:
             payment_date="2025-06-10",
         )
         normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2025-05-15")
-        assert normalized.decision_date is None
-        assert warnings == ["share_type_defaulted"]
+        assert normalized.decision_date == date(2025, 4, 15)
+        assert "decision_date_defaulted" in warnings
 
-    def test_none_record_date_remains_null(self):
+    def test_none_record_date_uses_month_before_decision_date(self):
         raw = _RawDividendEntry(
             period_year=2025,
             period_type="quarterly",
             period_number=1,
             amount_per_share="1.0",
-            decision_date="2025-06-10",
-            payment_date="2025-08-10",
+            decision_date="2026-07-07",
+            payment_date="2026-10-05",
         )
         normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
-        assert normalized.record_date is None
-        assert warnings == ["share_type_defaulted"]
+        assert normalized.record_date == date(2026, 6, 7)
+        assert "record_date_defaulted" in warnings
 
-    def test_none_payment_date_positive_amount_remains_null(self):
+    def test_none_payment_date_positive_amount_uses_two_months_after_decision(self):
         raw = _RawDividendEntry(
             period_year=2025,
             period_type="quarterly",
@@ -849,10 +859,10 @@ class TestNormalizeAndFillDividendEdgeCases:
             record_date="2025-04-05",
         )
         normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
-        assert normalized.payment_date is None
-        assert warnings == ["share_type_defaulted"]
+        assert normalized.payment_date == date(2025, 6, 10)
+        assert "payment_date_defaulted" in warnings
 
-    def test_none_payment_date_zero_amount_remains_null(self):
+    def test_none_payment_date_zero_amount_uses_next_day(self):
         raw = _RawDividendEntry(
             period_year=2025,
             period_type="quarterly",
@@ -862,15 +872,19 @@ class TestNormalizeAndFillDividendEdgeCases:
             record_date="2025-04-05",
         )
         normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
-        assert normalized.payment_date is None
-        assert warnings == ["share_type_defaulted"]
+        assert normalized.payment_date == date(2025, 4, 11)
+        assert "payment_date_defaulted" in warnings
 
-    def test_all_none_fields_are_rejected(self):
+    def test_all_missing_dates_use_upload_date(self):
         raw = _RawDividendEntry(amount_per_share="0.5")
-        with pytest.raises(ValueError, match="period_year"):
-            normalize_and_fill_dividend(raw, upload_date="2025-05-15")
+        normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2025-05-15")
+        assert normalized.decision_date == date(2025, 4, 15)
+        assert normalized.record_date == date(2025, 3, 15)
+        assert normalized.payment_date == date(2025, 6, 15)
+        assert normalized.period_year == 2024
+        assert {"decision_date_defaulted", "record_date_defaulted", "payment_date_defaulted"} <= set(warnings)
 
-    def test_validation_warns_and_preserves_only_safe_date_facts(self):
+    def test_validation_warns_and_recalculates_invalid_dates(self):
         raw = _RawDividendEntry(
             period_year=2025,
             period_type="annual",
@@ -881,8 +895,8 @@ class TestNormalizeAndFillDividendEdgeCases:
             payment_date="2025-06-10",
         )
         normalized, warnings = normalize_and_fill_dividend(raw, upload_date="2026-05-04")
-        assert normalized.record_date is None
-        assert normalized.payment_date is None
+        assert normalized.record_date == date(2025, 5, 10)
+        assert normalized.payment_date == date(2025, 8, 10)
         assert "record_date_after_decision_date" in warnings
         assert "payment_date_not_after_decision_date" in warnings
 

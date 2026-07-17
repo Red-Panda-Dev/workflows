@@ -472,8 +472,8 @@ class TestProcessAiDistillation:
         assert sleep_calls[0] == 0.5
 
     @pytest.mark.anyio
-    async def test_reconciles_boolean_deduplicates_and_preserves_null_dates(self, tmp_path):
-        """Verify the activity emits only document-supported, internally consistent facts."""
+    async def test_reconciles_boolean_deduplicates_and_calculates_missing_dates(self, tmp_path):
+        """Verify the activity emits internally consistent facts with required dates."""
         output_dir = tmp_path / "output"
         unp_dir = output_dir / "100000001"
         unp_dir.mkdir(parents=True)
@@ -521,11 +521,13 @@ class TestProcessAiDistillation:
         file_result = result.results["100000001/doc.md"]
         assert file_result.has_dividends is True
         assert len(file_result.dividends) == 1
-        assert file_result.dividends[0]["record_date"] is None
-        assert file_result.dividends[0]["payment_date"] is None
+        assert file_result.dividends[0]["record_date"] == "2026-02-28"
+        assert file_result.dividends[0]["payment_date"] == "2026-05-28"
         assert file_result.warnings == [
             "duplicate_dividend_entries_removed",
             "has_dividends_reconciled_from_amounts",
+            "payment_date_defaulted",
+            "record_date_defaulted",
         ]
 
 

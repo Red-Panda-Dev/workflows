@@ -487,9 +487,10 @@ YYYY-MM-DD
 
 If a date is missing or cannot be safely normalized, return `null`.
 
-Do not auto-fill missing dates.
-
-Downstream post-processing may fill missing dates when appropriate.
+Do not auto-fill missing dates in the AI response. Downstream normalization calculates
+missing values before export: decision date = one month before the file upload date,
+record date = one month before the decision date, and payment date = one day after a
+zero-amount decision or two months after a positive decision.
 
 ---
 
@@ -884,7 +885,7 @@ Before returning JSON, verify:
    - `preferred`
 7. No extra fields are present.
 8. Dates are ISO `YYYY-MM-DD` or `null`.
-9. No missing dates were auto-filled.
+9. No missing dates were auto-filled in the AI response; downstream normalization calculates them before export.
 10. `period_type` is one of:
     - `annual`
     - `halfyear`

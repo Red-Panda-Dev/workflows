@@ -414,19 +414,24 @@ def _normalize_period_type(value: str | None) -> PeriodType | None:
 
 
 def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tuple[EpfrDividendEntry, list[str]]:
-    """Normalize one model entry without inventing financial facts.
+    """Normalize one model entry and calculate missing payout dates.
+
+    Explicit document dates are preserved. When a date is absent or invalid, the
+    export contract uses deterministic fallbacks: the decision date is one month
+    before the file upload date, the record date is one month before the decision,
+    and the payment date is one day (zero amount) or two months (positive amount)
+    after the decision.
 
     Args:
         raw: Raw dividend entry returned by the model.
-        upload_date: Retained for API compatibility; it is not used as evidence.
+        upload_date: Source file upload date used to derive a missing decision date.
 
     Returns:
-        The validated dividend and warnings for discarded malformed dates.
+        The validated dividend and warnings for discarded or calculated dates.
 
     Raises:
         ValueError: If a required non-date dividend fact is absent or unsupported.
     """
-    del upload_date
     warnings: list[str] = []
 
     share_type = _normalize_share_type(raw.share_type)
@@ -449,6 +454,7 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
         warnings.append("period_number_defaulted")
     if raw.amount_per_share is None:
         raise ValueError("amount_per_share is required")
+    amount_per_share = Decimal(str(raw.amount_per_share))
 
     decision_date, warning = _normalize_iso_date(raw.decision_date, "decision_date")
     if warning:
@@ -460,13 +466,6 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
     if warning:
         warnings.append(warning)
 
-    period_year = raw.period_year
-    if period_year is None:
-        if decision_date is None:
-            raise ValueError("period_year requires a document date")
-        period_year = decision_date.year - 1 if period_type == "annual" else decision_date.year
-        warnings.append("period_year_defaulted")
-
     if decision_date is not None and record_date is not None and record_date > decision_date:
         record_date = None
         warnings.append("record_date_after_decision_date")
@@ -474,12 +473,31 @@ def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tup
         payment_date = None
         warnings.append("payment_date_not_after_decision_date")
 
+    if decision_date is None:
+        upload_reference, _ = _normalize_iso_date(upload_date, "upload_date")
+        decision_date = _shift_months(upload_reference or datetime.now(UTC).date(), -1)
+        warnings.append("decision_date_defaulted")
+    if record_date is None:
+        record_date = _shift_months(decision_date, -1)
+        warnings.append("record_date_defaulted")
+    if payment_date is None:
+        if amount_per_share == 0:
+            payment_date = decision_date.fromordinal(decision_date.toordinal() + 1)
+        else:
+            payment_date = _shift_months(decision_date, 2)
+        warnings.append("payment_date_defaulted")
+
+    period_year = raw.period_year
+    if period_year is None:
+        period_year = decision_date.year - 1 if period_type == "annual" else decision_date.year
+        warnings.append("period_year_defaulted")
+
     dividend = EpfrDividendEntry(
         share_type=share_type,
         period_year=period_year,
         period_type=period_type,
         period_number=period_number,
-        amount_per_share=Decimal(str(raw.amount_per_share)),
+        amount_per_share=amount_per_share,
         decision_date=decision_date,
         record_date=record_date,
         payment_date=payment_date,
