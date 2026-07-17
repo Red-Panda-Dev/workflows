@@ -1,127 +1,94 @@
-# AGENTS.md
+# AGENTS.md — EPFR Downloader (project)
 
 ## Scope and inheritance
 
-Applies to: `epfr-downloader/` (the runtime project). Inherits repo-wide guidance from the root `AGENTS.md` (workspace layout, two-env rule, ruff config, validation commands). This file adds only the project-local module map and per-area change rules; it does not override any parent rule.
+Applies to: `epfr-downloader/` (the runtime project). Inherits repo-wide guidance from the root `AGENTS.md`: two-env layout, ruff/ty config, validation commands, and the architectural invariants (workflow sandbox rule, auto-discovery contract, **workflow isolation — no cross-workflow imports, communicate via `output/` artifacts only**). This file adds only the project-local module map and per-area change rules; it contains no parent-rule overrides.
 
-The EPFR Files Downloader — a set of Mistral Workflows that fetch paginated disclosure records from the `epfr.gov.by` REST API, download each record's raw file content, extract archives, convert office documents to Markdown, OCR PDFs via Mistral, AI-distill structured dividend data, export share payouts, and produce JSON mappings organized by company UNP.
+The EPFR Files Downloader — Mistral Workflows that fetch paginated disclosure records from the `epfr.gov.by` REST API, download each record's raw file content, extract archives, convert office documents to Markdown, OCR PDFs/images, AI-distill structured dividend data, export share payouts, and produce JSON mappings organized by company UNP.
 
-Four separate workflows, each independently invocable:
+## The four workflows
 
-1. **`epfr-files-downloader`** — fetch pages → download files → extract archives → convert documents → produce `unp_file_mapping.json`
-2. **`epfr-ocr-converter`** — OCR files (PDF, PNG, JPG, JPEG) in mapped UNP folders → update mapping entries to point at Markdown files
-3. **`epfr-ai-distiller`** — AI-extract structured dividend data from mapped Markdown files → produce `ai_distilled_dividends.json`
-4. **`epfr-share-payout-exporter`** — join distilled dividends with share reference CSV → produce `share_payouts_by_unp.json` and `share_dividends_insert.sql` (SQL generation runs in-workflow as the 4th activity)
+Each is independently invocable and produces a filesystem artifact consumed by the next:
+
+1. **`epfr-files-downloader`** (`workflow.py`, 5 activities) → writes `output/unp_file_mapping.json`
+2. **`epfr-ocr-converter`** (`pdf_ocr_workflow.py`, 3 activities) → OCRs PDF/PNG/JPG/JPEG entries; updates mapping to point at `.md` files
+3. **`epfr-ai-distiller`** (`ai_distiller_workflow.py`, 3 activities) → writes `output/ai_distilled_dividends.json`
+4. **`epfr-share-payout-exporter`** (`share_payout_exporter_workflow.py`, 4 activities) → writes `output/share_payouts_by_unp.json` and `output/share_dividends_insert.sql` (SQL generation is the in-workflow 4th activity)
+
+Pipeline chaining order: **downloader → (OCR converter, AI distiller) → share payout exporter.** Each workflow reads the previous one's output file; they never import each other.
 
 ## What lives here
 
 ```text
 src/
 ├── discover.py                      # Scans workflows/ for workflow classes, starts Mistral worker
-├── tests/                           # Unit tests (18 modules)
+├── tests/                           # Unit tests (18 modules) + fixtures/
 │   ├── conftest.py                  # Shared fixtures
-│   ├── test_ai_distiller.py         # AI distillation logic
-│   ├── test_ai_distiller_workflow.py # AI distiller workflow (3 activities)
-│   ├── test_client.py               # API client and download logic
-│   ├── test_config.py               # Configuration constants
-│   ├── test_converter.py            # Document conversion
-│   ├── test_detector.py             # Magic-byte detection
-│   ├── test_extractor.py            # Archive extraction and OOXML detection
-│   ├── test_fixture_inventory.py    # Test fixture completeness checks
-│   ├── test_markdown_cleanup.py     # Markdown cleanup logic
-│   ├── test_models.py               # Pydantic model parsing
-│   ├── test_pdf_ocr.py              # OCR conversion (PDF, PNG, JPG, JPEG) — skipped by default
-│   ├── test_pdf_ocr_mapping.py      # OCR mapping update logic (PDF, PNG, JPG, JPEG)
-│   ├── test_pdf_ocr_workflow.py     # OCR workflow wrapper (3 activities)
-│   ├── test_share_payout_exporter.py # Share payout export logic
-│   ├── test_share_payout_exporter_workflow.py # Share payout export workflow (4 activities)
-│   ├── test_start_cli.py            # CLI start script
-│   ├── test_workflow_activities.py  # Main download workflow activities
-│   ├── test_workflow_wrappers.py    # Main download workflow wrapper + save_unp_mapping
+│   ├── test_<module>.py             # Mirror the source modules one-to-one
+│   └── test_*_workflow.py           # Per-workflow activity tests
 └── workflows/
     ├── __init__.py                  # Empty package marker (auto-discovery entry point)
     ├── start.py                     # CLI to trigger workflow execution via Mistral client
-    └── epfr/
-        ├── config.py                # Constants: API URLs, concurrency, retry, pagination, OCR, AI defaults
-        ├── models.py                # Pydantic models: EpfrRecord, EpfrApiResponse, workflow I/O, AI extraction models
+    └── epfr/                        # See src/workflows/epfr/AGENTS.md for internals
+        ├── config.py                # All constants & tuning knobs (EPFR_* env-overridable)
+        ├── models.py                # All Pydantic models for the 4 workflows + API + AI extraction
         ├── client.py                # aiohttp API client (fetch pages, download files by record ID)
-        ├── detector.py              # Magic-byte file extension detection (API returns raw bytes, no names)
-        ├── extractor.py             # Archive extraction (ZIP, TAR, GZ) with OOXML detection
-        ├── converter.py             # Document-to-Markdown: docx/doc/xls/xlsx via Python libs
-        ├── markdown_cleanup.py      # Token-heavy markdown artifact removal (images, excessive blanks)
-        ├── pdf_ocr.py               # OCR conversion (PDF, PNG, JPG, JPEG) via Mistral OCR plugin, mapping update
-        ├── pdf_ocr_workflow.py      # epfr-ocr-converter workflow + 3 activities
-        ├── ai_distiller.py          # AI distillation: Mistral Large structured extraction of dividend data
-        ├── ai_distiller_workflow.py # epfr-ai-distiller workflow + 3 activities
-        ├── share_payout_exporter.py # Join distilled dividends with share reference CSV
-        ├── share_payout_exporter_workflow.py # epfr-share-payout-exporter workflow + 4 activities (incl. SQL)
-        ├── workflow.py              # epfr-files-downloader workflow + 5 activities (main pipeline)
-        └── prompts/                 # Prompt templates for AI distillation
-            └── dividends_parsing.md
-output/                              # Downloaded files, mapping JSON, distilled JSON, payout SQL (gitignored)
+        ├── detector.py              # Magic-byte file extension detection (API returns raw bytes)
+        ├── extractor.py             # Archive extraction (ZIP/TAR/GZ) with OOXML detection
+        ├── converter.py             # Document→Markdown: docx/doc/xls/xlsx
+        ├── markdown_cleanup.py      # Token-heavy markdown artifact removal
+        ├── pdf_ocr.py               # OCR conversion (PDF/PNG/JPG/JPEG) + mapping update
+        ├── *_workflow.py            # The 4 workflow entry modules
+        └── prompts/dividends_parsing.md  # AI distillation prompt template
+output/                              # Downloaded files, mapping/distilled/payout JSON, payout SQL (gitignored)
 Dockerfile                           # Container image for worker deployment
 ```
 
 ## Local boundaries and invariants
 
-- **Workflow sandbox:** `os.environ` access is forbidden inside workflow classes. All env var reads happen inside `@workflows.activity()` functions.
-- **Discovery contract:** Each workflow class is decorated with `@workflows.workflow.define(name="...", ...)`. The discoverer in `discover.py` scans for `__workflows_workflow_def`.
-- **No filenames from API:** The EPFR API returns raw binary content with no filename. `detector.py` inspects the first bytes (magic bytes) and maps them to an extension. Files are saved as `<record_id><detected_ext>` (e.g. `141278.pdf`).
-- **UNP-based folder layout:** Files are organized by the holder's UNP (tax ID string). UNP comes from `rec.holder.unp` if non-empty, otherwise falls back to `rec.organization.unp`. Records missing a `holder.id` are skipped in the mapping but logged.
-- **Pagination starts at 0:** `FIRST_PAGE_NO = 0`. The EPFR API uses 0-based page numbers — do not adjust to 1.
-- **Early termination:** Fetching stops when the API response has `last=True`, before reaching `max_pages`.
-- **Atomic writes:** All JSON output uses `tempfile.mkstemp()` → write → `os.replace()`. Keep this pattern for any new output files.
-- **OOXML detection in extractor:** ZIP files that are actually OOXML documents (docx, xlsx, pptx) are detected by internal markers (`[Content_Types].xml`, etc.) and renamed instead of extracted.
-- **PDF OCR split:** PDF conversion is a separate workflow (`epfr-ocr-converter`), not part of the main download pipeline. It reads the mapping JSON, OCRs PDF entries, and updates mapping entries to point at the resulting `.md` files.
-- **AI distillation is separate:** AI extraction runs as its own workflow (`epfr-ai-distiller`), consuming the mapping JSON output from the download pipeline. It does not modify the mapping — it produces `ai_distilled_dividends.json`.
-- **Share payout export is separate:** Export runs as its own workflow (`epfr-share-payout-exporter`), joining `ai_distilled_dividends.json` with a share reference CSV. It produces `share_payouts_by_unp.json`.
-- **File lineage tracking:** The mapping JSON tracks `extracted_from` and `converted_from` fields so each entry knows its transformation chain (archive → extracted file → converted .md).
+These are project-specific implementation rules; the cross-cutting architectural invariants (sandbox, discovery, workflow isolation) are inherited from the root `AGENTS.md`.
+
+- **No filenames from the API.** The EPFR API returns raw binary content with no filename. `detector.py` inspects the first bytes (magic bytes) and files are saved as `<record_id><detected_ext>` (e.g. `141278.pdf`). Archives, by contrast, contain real filenames.
+- **UNP-based folder layout.** Files are organized by the holder's UNP (tax ID string) under `output/<UNP>/`. UNP comes from `rec.holder.unp` if non-empty, otherwise falls back to `rec.organization.unp`. Records missing a `holder.id` are skipped in the mapping but logged.
+- **Pagination is 0-based.** `FIRST_PAGE_NO = 0` — do not adjust to 1.
+- **Early termination.** Fetching stops when the API response has `last=True`, before reaching `max_pages`.
+- **Atomic writes.** All JSON/SQL output uses `tempfile.mkstemp()` → write → `os.replace()`. Keep this pattern for any new output file.
+- **OOXML detection in extractor.** ZIP files that are actually OOXML documents (docx/xlsx/pptx) are detected by internal markers (`[Content_Types].xml`, etc.) and renamed, not extracted.
+- **File lineage tracking.** The mapping JSON carries `extracted_from` (archive → extracted file) and `converted_from` (source → `.md`) so each entry knows its full transformation chain.
+- **PDFs are not converted inline.** PDF/PNG/JPG/JPEG files are left for the separate OCR workflow; the converter handles office documents only.
+- **Config is env-overridable.** Every tuning knob in `config.py` can be overridden via an `EPFR_*` env var (e.g. `EPFR_MAX_CONCURRENT_OCR`, `EPFR_AI_MODEL`), falling back to `EPFR_DEFAULTS`. Do not hardcode these values in workflow modules.
 
 ## Safe change rules
 
-- **Changing API request params:** Edit `client.py` (`fetch_page`). Constants live in `config.py`.
-- **Changing download behavior:** Edit `client.py` (`download_all_files`, `download_file`). Retry/concurrency tuning in `config.py`.
-- **Adding new magic-byte signatures:** Edit `detector.py:SIGNATURES`. Keep the list ordered — first match wins.
-- **Changing archive extraction:** Edit `extractor.py`. New archive extensions go in `ARCHIVE_EXTENSIONS`. New OOXML markers go in `OOXML_MARKERS` / `OOXML_EXTENSION_MAP`.
-- **Changing document conversion:** Edit `converter.py`. Supports docx, doc, xls, xlsx. New types go in the extension dispatch.
-- **Changing markdown cleanup:** Edit `markdown_cleanup.py`. Affects both converter and OCR pipelines.
-- **Changing OCR behavior:** Edit `pdf_ocr.py` or `pdf_ocr_workflow.py`. OCR model, concurrency, and supported extensions in `config.py` (`OCR_MODEL`, `MAX_CONCURRENT_OCR`, `MAX_PDF_SIZE_BYTES`, `OCR_SUPPORTED_EXTENSIONS`).
-- **Changing AI distillation:** Edit `ai_distiller.py`. Model and retry tuning in `config.py` (`AI_MODEL`, `AI_MAX_RETRIES`, etc.). Prompt template at `prompts/dividends_parsing.md`.
-- **Changing share payout export:** Edit `share_payout_exporter.py`. Config constants in `config.py`.
-- **Changing output schema:** Edit `models.py` first, then update affected workflow and consumer modules.
+- **API request params** → `client.py` (`fetch_page`/`build_page_url`). Constants in `config.py`.
+- **Download behavior / retry / concurrency** → `client.py` (`download_file`, `download_all_files`). Tuning in `config.py`.
+- **Magic-byte signatures** → `detector.py:SIGNATURES` (ordered list — first match wins; keep PDF before overlapping signatures).
+- **Archive extraction / OOXML markers** → `extractor.py` (`ARCHIVE_EXTENSIONS`, OOXML marker maps).
+- **Document conversion (new office types)** → `converter.py` extension dispatch.
+- **Markdown cleanup** → `markdown_cleanup.py` (affects both converter and OCR pipelines).
+- **OCR behavior / model / size limits / supported extensions** → `pdf_ocr.py` + `config.py` (`OCR_MODEL`, `MAX_CONCURRENT_OCR`, `MAX_PDF_SIZE_BYTES`, `OCR_SUPPORTED_EXTENSIONS`).
+- **AI distillation / model / retry / prompt** → `ai_distiller.py` + `config.py` (`AI_MODEL`, `AI_MAX_RETRIES`, `AI_FILE_DELAY`) + `prompts/dividends_parsing.md`.
+- **Share payout export / CSV matching** → `share_payout_exporter.py`. Config constants in `config.py`.
+- **Output / data schema** → edit `models.py` first, then update every affected workflow and consumer module (and its test).
 - **Do not edit `.agents/`** — read-only Mistral SDK references.
 
 ## Validation
 
 ```bash
 # From inside epfr-downloader/
-
-# Install dependencies
-uv sync
-
-# Lint
-make lint
-
-# Auto-fix
-make refactor
-
-# Run tests (test_pdf_ocr.py skipped by default)
-make test
-
-# Start worker
-make start-worker
-
-# Trigger workflows
+uv sync                                   # install runtime deps
+make lint                                 # ruff format --check + ruff check
+make refactor                             # auto-fix + format
+make test                                 # coverage run; test_pdf_ocr.py skipped by default
+make start-worker                         # auto-discover workflows, start Mistral worker
 make execute input='{"max_pages": 2, "date_from": "2026-03-01"}'
 make execute-share-payout-exporter input='{"output_dir": "output"}'
-
-# Docker
-make docker-build
-make docker-run
+make docker-build && make docker-run
 ```
 
 ## Nearby docs
 
-- `src/workflows/epfr/AGENTS.md` — pipeline internals, data contracts, activity boundaries, per-file editing rules
-- Root `AGENTS.md` — workspace conventions, two-env layout, ruff config
-- Root `ARCHITECTURE.md` — full system code map and invariants
+- `src/workflows/epfr/AGENTS.md` — pipeline internals: module map, activity boundaries, data contracts, per-file editing rules
+- Root `AGENTS.md` — workspace conventions, two-env layout, ruff config, architectural invariants
+- Root `ARCHITECTURE.md` — full system code map, logical layers, dependency direction, data flow
+- `README.md` — setup and usage
