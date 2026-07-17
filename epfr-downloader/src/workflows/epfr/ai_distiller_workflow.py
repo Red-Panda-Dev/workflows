@@ -8,6 +8,7 @@ The workflow is split into 3 activities for UI progress tracking:
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 import json
 import logging
 import os
@@ -17,7 +18,7 @@ from typing import Any
 
 import mistralai.workflows as workflows
 
-from .ai_distiller import AIDistiller, normalize_and_fill_dividend
+from .ai_distiller import AIDistiller, _deduplicate_dividends, normalize_and_fill_dividend
 from .config import resolve_ai_distiller_input
 from .models import (
     AiDistillerFileResult,
@@ -62,6 +63,7 @@ async def scan_ai_distiller_files(input: EpfrAiDistillerInput) -> AiDistillerSca
         model_name=input.model_name,
         temperature=input.temperature,
         max_retries=input.max_retries,
+        max_tokens=input.max_tokens,
         file_delay_seconds=input.file_delay_seconds,
     )
     output_root = Path(resolved["output_dir"])
@@ -129,6 +131,7 @@ async def scan_ai_distiller_files(input: EpfrAiDistillerInput) -> AiDistillerSca
         model_name=resolved["model_name"],
         temperature=resolved["temperature"],
         max_retries=resolved["max_retries"],
+        max_tokens=resolved["max_tokens"],
         file_delay_seconds=resolved["file_delay_seconds"],
     )
 
@@ -175,6 +178,7 @@ async def process_ai_distillation(
         model_name=scan_result.model_name,
         temperature=scan_result.temperature,
         reference_date=reference_date,
+        max_tokens=scan_result.max_tokens,
     )
 
     results: dict[str, AiDistillerFileResult] = {}
@@ -209,9 +213,8 @@ async def process_ai_distillation(
                 # AI extraction with retry
                 raw_extraction = await distiller.extract_with_retry(md_content, scan_result.max_retries, md_path)
 
-                # Normalize dividends
                 dividends: list[dict[str, Any]] = []
-                autofilled_fields: list[str] = []
+                warnings: list[str] = []
 
                 if raw_extraction.dividends:
                     logger.info(
@@ -219,20 +222,30 @@ async def process_ai_distillation(
                         f"comment={raw_extraction.ai_comment!r}"
                     )
                     for raw_div in raw_extraction.dividends:
-                        normalized, filled = normalize_and_fill_dividend(raw_div, item.upload_date)
+                        try:
+                            normalized, entry_warnings = normalize_and_fill_dividend(raw_div, item.upload_date)
+                        except ValueError as exc:
+                            warnings.append(f"invalid_dividend_entry: {exc}")
+                            continue
                         dividends.append(normalized.model_dump(mode="json"))
-                        autofilled_fields.extend(filled)
+                        warnings.extend(entry_warnings)
 
-                # Use key that includes both unp and filename to avoid overwriting
+                dividends, deduplication_warnings = _deduplicate_dividends(dividends)
+                warnings.extend(deduplication_warnings)
+                has_dividends = any(Decimal(dividend["amount_per_share"]) > 0 for dividend in dividends)
+                if has_dividends != raw_extraction.has_dividends:
+                    warnings.append("has_dividends_reconciled_from_amounts")
+
                 result_key = f"{unp}/{item.filename}"
                 results[result_key] = AiDistillerFileResult(
                     unp=unp,
                     filename=item.filename,
                     status="SUCCESS",
-                    has_dividends=raw_extraction.has_dividends,
+                    has_dividends=has_dividends,
                     ai_comment=raw_extraction.ai_comment,
                     dividends=dividends,
-                    autofilled_fields=sorted(set(autofilled_fields)),
+                    autofilled_fields=[],
+                    warnings=sorted(set(warnings)),
                     error=None,
                     file_id=item.file_id,
                 )
@@ -251,6 +264,7 @@ async def process_ai_distillation(
                     ai_comment="",
                     dividends=[],
                     autofilled_fields=[],
+                    warnings=[],
                     error=f"{type(exc).__name__}: {exc}",
                     file_id=item.file_id,
                 )
@@ -344,6 +358,7 @@ async def finalize_ai_distillation(
             "ai_comment": file_result.ai_comment,
             "dividends": file_result.dividends,
             "autofilled_fields": file_result.autofilled_fields,
+            "warnings": file_result.warnings,
         }
         if file_result.error:
             file_entry["error"] = file_result.error

@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from workflows.epfr.ai_distiller import _RawDividendEntry, _RawExtraction
 from workflows.epfr.ai_distiller_workflow import (
     finalize_ai_distillation,
     process_ai_distillation,
@@ -469,6 +470,63 @@ class TestProcessAiDistillation:
         # Should have called sleep once between the two files
         assert len(sleep_calls) >= 1
         assert sleep_calls[0] == 0.5
+
+    @pytest.mark.anyio
+    async def test_reconciles_boolean_deduplicates_and_preserves_null_dates(self, tmp_path):
+        """Verify the activity emits only document-supported, internally consistent facts."""
+        output_dir = tmp_path / "output"
+        unp_dir = output_dir / "100000001"
+        unp_dir.mkdir(parents=True)
+        path = unp_dir / "doc.md"
+        path.write_text("# Notice", encoding="utf-8")
+        scan_result = AiDistillerScanResult(
+            mapping_path=str(output_dir / "mapping.json"),
+            total_companies=1,
+            total_files=1,
+            work_items=[
+                AiDistillerWorkItem(
+                    unp="100000001",
+                    company_title="Company A",
+                    holder_id=1,
+                    file_path=str(path),
+                    filename="doc.md",
+                    original_name="doc.pdf",
+                    upload_date="2026-01-01",
+                    file_id=1,
+                )
+            ],
+            output_dir=str(output_dir),
+            output_filename="output.json",
+            model_name="test-model",
+            temperature=0.0,
+            max_retries=1,
+            file_delay_seconds=0.0,
+        )
+        raw = _RawDividendEntry(
+            share_type="common",
+            period_year=2025,
+            period_type="annual",
+            period_number=1,
+            amount_per_share="0.5",
+            decision_date="2026-03-28",
+            record_date=None,
+            payment_date=None,
+        )
+        extraction = _RawExtraction(has_dividends=False, ai_comment="Found payout", dividends=[raw, raw])
+
+        with patch("workflows.epfr.ai_distiller_workflow.AIDistiller") as mock_distiller:
+            mock_distiller.return_value.extract_with_retry = AsyncMock(return_value=extraction)
+            result = await process_ai_distillation(scan_result)
+
+        file_result = result.results["100000001/doc.md"]
+        assert file_result.has_dividends is True
+        assert len(file_result.dividends) == 1
+        assert file_result.dividends[0]["record_date"] is None
+        assert file_result.dividends[0]["payment_date"] is None
+        assert file_result.warnings == [
+            "duplicate_dividend_entries_removed",
+            "has_dividends_reconciled_from_amounts",
+        ]
 
 
 # =============================================================================

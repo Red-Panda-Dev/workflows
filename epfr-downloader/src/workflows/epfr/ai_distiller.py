@@ -31,11 +31,11 @@ import os
 from pathlib import Path
 import random
 import tempfile
-from typing import Any, cast
+from typing import Any
 
 from mistralai.extra import response_format_from_pydantic_model
 from mistralai.workflows.plugins.mistralai import ChatCompletionRequest, ResponseFormat, mistralai_chat_parse
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from .config import load_epfr_config
 from .models import (
@@ -123,7 +123,7 @@ class AIDistiller:
         max_tokens: Maximum tokens to generate in the response.
     """
 
-    def __init__(self, model_name: str, temperature: float, reference_date: str) -> None:
+    def __init__(self, model_name: str, temperature: float, reference_date: str, max_tokens: int = 4000) -> None:
         """Initialize AI distiller with model config and reference date.
 
         Args:
@@ -133,6 +133,7 @@ class AIDistiller:
             reference_date: ISO 8601 date string (YYYY-MM-DD) used as the reference
                 point in the system prompt. Typically the current date when the distiller
                 is created.
+            max_tokens: Maximum tokens allowed in the model response.
 
         Side effects:
             - Loads the prompt template from prompts/dividends_parsing.md
@@ -147,7 +148,7 @@ class AIDistiller:
         self.system_instruction = prompt_template.replace("{{REFERENCE_DATE}}", reference_date)
         self.model_name = model_name
         self.temperature = temperature
-        self.max_tokens = 4000
+        self.max_tokens = max_tokens
         logger.info("AIDistiller ready: prompt_template_loaded=True")
 
     async def extract(self, markdown_text: str) -> _RawExtraction:
@@ -220,7 +221,19 @@ class AIDistiller:
                 return result
             except (Exception, asyncio.CancelledError) as exc:
                 error_str = str(exc).lower() if isinstance(exc, Exception) else "cancellederror"
-                is_retryable = any(s in error_str for s in ("503", "502", "429", "timeout", "overload", "cancelled"))
+                is_retryable = any(
+                    marker in error_str
+                    for marker in (
+                        "503",
+                        "502",
+                        "429",
+                        "timeout",
+                        "overload",
+                        "cancelled",
+                        "invalid json",
+                        "eof while parsing",
+                    )
+                )
                 if is_retryable and attempt < max_retries - 1:
                     is_rate_limited = "429" in error_str or "rate limit" in error_str or "rate_limited" in error_str
                     wait = _compute_retry_wait_seconds(attempt, is_rate_limited=is_rate_limited)
@@ -298,56 +311,47 @@ def _load_prompt_template() -> str:
 
 
 def _parse_iso_date(value: str | None) -> date | None:
-    """Parse ISO 8601 date string to date object.
-
-    Converts a date string in YYYY-MM-DD format to a Python date object.
-    Handles None input gracefully by returning None.
-
-    Args:
-        value: Date string in ISO 8601 format (YYYY-MM-DD), or None.
-
-    Returns:
-        date: Parsed date object, or None if input was None or empty.
-
-    Raises:
-        ValueError: If the string cannot be parsed as a valid ISO 8601 date.
-
-    Business logic:
-        - AI returns dates as strings in YYYY-MM-DD format
-        - Empty strings and None are both treated as missing dates
-        - This is the entry point for all date parsing from raw AI extraction
-    """
+    """Parse an exact date-only ISO value for legacy callers."""
     if not value:
         return None
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def _shift_months(value: date, months: int) -> date:
-    """Shift a date by specified number of months, handling month boundaries.
+def _normalize_iso_date(value: str | None, field_name: str) -> tuple[date | None, str | None]:
+    """Return a document-derived date or an extraction warning.
 
-    Adds or subtracts months from a date while properly handling month length
-    differences. For example, shifting Jan 31 by 1 month returns Feb 28/29
-    (not March 31).
+    A date-only ISO value is preferred. ISO datetimes and one trailing punctuation
+    mark are accepted because providers commonly serialize otherwise valid dates
+    that way. Any prose-contaminated value is discarded instead of being guessed.
 
     Args:
-        value: The base date to shift.
-        months: Number of months to add (can be negative to subtract months).
+        value: Raw date value emitted by the extraction model.
+        field_name: Output field used in a warning identifier.
 
     Returns:
-        date: New date with months added, clamped to valid day for the target month.
-
-    Business logic:
-        - Handles leap years: Feb 29 in a leap year becomes Feb 28 in non-leap years
-        - Respects month lengths: Jan 31 + 1 month = Feb 28/29, not March 3
-        - Used for auto-filling missing dates: record_date defaults to decision_date - 1 month
-        - payment_date defaults to decision_date + 2 months (for non-zero amounts)
+        A normalized date and an optional warning identifier.
     """
+    if value is None or not value.strip():
+        return None, None
+
+    candidate = value.strip()
+    if candidate[-1:] in {",", ".", ";"}:
+        candidate = candidate[:-1].rstrip()
+    try:
+        if "T" in candidate:
+            return datetime.fromisoformat(candidate.replace("Z", "+00:00")).date(), None
+        return date.fromisoformat(candidate), None
+    except ValueError:
+        return None, f"invalid_{field_name}"
+
+
+def _shift_months(value: date, months: int) -> date:
+    """Shift a date by months while clamping the day to the target month."""
     month_index = value.month - 1 + months
     year = value.year + month_index // 12
     month = month_index % 12 + 1
     if month == 2:
-        leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-        day_max = 29 if leap else 28
+        day_max = 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28
     elif month in {4, 6, 9, 11}:
         day_max = 30
     else:
@@ -356,24 +360,7 @@ def _shift_months(value: date, months: int) -> date:
 
 
 def _safe_replace_year(value: date, new_year: int) -> date:
-    """Replace year in date safely, handling leap-day rollover.
-
-    Changes the year of a date while preserving month and day. If the original
-    date is Feb 29 and the new year is not a leap year, falls back to Feb 28.
-
-    Args:
-        value: The original date whose year will be replaced.
-        new_year: The new year to set.
-
-    Returns:
-        date: New date with the year replaced. If the original was Feb 29 and
-            new_year is not a leap year, returns Feb 28 of new_year.
-
-    Business logic:
-        - Leap day handling: Feb 29 in a leap year becomes Feb 28 in non-leap years
-        - Used during annual period year correction when the period_year doesn't
-          match the decision_date year (e.g., 2025 dividends decided in late 2024)
-    """
+    """Replace a date year while safely handling February 29."""
     try:
         return value.replace(year=new_year)
     except ValueError:
@@ -388,182 +375,159 @@ def _validate_and_correct_dates(
     payment_date: date,
     autofilled: list[str],
 ) -> tuple[int, date, date, date]:
-    """Apply post-extraction date sanity checks and corrections.
+    """Return legacy date arguments unchanged for compatibility.
 
-    Validates and corrects dividend dates to ensure they follow business rules.
-    Mutates the autofilled list to track which corrections were applied.
-
-    Args:
-        period_type: The dividend period type ("annual", "halfyear", "quarterly").
-        period_year: The dividend period year.
-        decision_date: Date when dividend was decided.
-        record_date: Date of record for dividend eligibility.
-        payment_date: Date when dividend is paid.
-        autofilled: List of strings tracking which fields were auto-filled or corrected.
-            This list is mutated in-place to add correction flags.
-
-    Returns:
-        tuple: Corrected values as (period_year, decision_date, record_date, payment_date).
-
-    Side effects:
-        - Appends correction flags to the autofilled list (e.g., "record_date_corrected")
-
-    Business logic:
-        - Date gap check: If decision_date is >6 months before record_date, shifts
-          record_date back by 1 month (common data entry error pattern)
-        - Payment date gap: If payment_date is >1 year after decision_date, shifts
-          payment_date forward by 2 months
-        - Annual period year correction: If period_type is "annual" and period_year
-          equals decision_date year, checks if dates belong to next year. If so,
-          either decrements period_year or shifts all dates to next year.
-        - Final ordering guard: Ensures decision_date >= record_date and
-          payment_date > decision_date, correcting if necessary.
+    Production normalization validates date relationships without rewriting
+    document facts. This helper remains available to callers of the old helper
+    API but no longer applies heuristic corrections.
     """
-    if (decision_date.toordinal() - record_date.toordinal()) > 183:
-        record_date = _shift_months(decision_date, -1)
-        autofilled.append("record_date_corrected")
-
-    if (payment_date.toordinal() - decision_date.toordinal()) > 365:
-        payment_date = _shift_months(decision_date, 2)
-        autofilled.append("payment_date_corrected")
-
-    if period_type == "annual" and period_year == decision_date.year:
-        current_year = datetime.now(UTC).year
-        corrected_dates_year = decision_date.year + 1
-
-        if corrected_dates_year > current_year:
-            period_year -= 1
-            autofilled.append("period_year_corrected")
-        else:
-            decision_date = _safe_replace_year(decision_date, corrected_dates_year)
-            record_date = _safe_replace_year(record_date, corrected_dates_year)
-            payment_date = _safe_replace_year(payment_date, corrected_dates_year)
-            autofilled.append("dates_year_corrected")
-
-    # Final ordering guard: ensure decision_date >= record_date and payment_date > decision_date.
-    if decision_date < record_date:
-        record_date = decision_date
-        autofilled.append("record_date_corrected")
-    if payment_date <= decision_date:
-        payment_date = date.fromordinal(decision_date.toordinal() + 1)
-        autofilled.append("payment_date_corrected")
-
+    del period_type, autofilled
     return period_year, decision_date, record_date, payment_date
 
 
-def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tuple[EpfrDividendEntry, list[str]]:
-    """Normalize and validate raw AI dividend entry, auto-filling missing fields.
+def _normalize_share_type(value: str | None) -> ShareType | None:
+    """Map explicit English and Belarusian share labels to the output enum."""
+    if value is None:
+        return None
+    normalized = value.casefold().strip()
+    if normalized in {"common", "ordinary", "common shares", "ordinary shares"} or any(
+        label in normalized for label in ("обыкнов", "обычные", "простые")
+    ):
+        return "common"
+    if normalized in {"preferred", "preferred shares"} or "привилег" in normalized:
+        return "preferred"
+    return None
 
-    Converts a raw AI extraction (_RawDividendEntry) into a validated
-    EpfrDividendEntry with all required fields populated. Tracks which fields
-    were auto-filled for downstream quality analysis.
+
+def _normalize_period_type(value: str | None) -> PeriodType | None:
+    """Map explicit period labels to the supported period enum without inferring a period."""
+    if value is None:
+        return None
+    normalized = value.casefold().strip()
+    if normalized in {"annual", "yearly", "год", "годовой"}:
+        return "annual"
+    if normalized in {"halfyear", "half-year", "semiannual", "полугодие"}:
+        return "halfyear"
+    if normalized in {"quarterly", "quarter", "квартал"}:
+        return "quarterly"
+    return None
+
+
+def normalize_and_fill_dividend(raw: _RawDividendEntry, upload_date: str) -> tuple[EpfrDividendEntry, list[str]]:
+    """Normalize one model entry without inventing financial facts.
 
     Args:
-        raw: Raw dividend entry from AI extraction with potentially missing or
-            invalid fields.
-        upload_date: The upload date of the source file in ISO 8601 format (YYYY-MM-DD).
-            Used as the baseline for auto-filling missing dates.
+        raw: Raw dividend entry returned by the model.
+        upload_date: Retained for API compatibility; it is not used as evidence.
 
     Returns:
-        tuple: (normalized EpfrDividendEntry, list of auto-filled field names).
-            The EpfrDividendEntry is guaranteed to pass all business constraint validations.
+        The validated dividend and warnings for discarded malformed dates.
 
-    Business logic:
-        - Amount conversion: String/int/float amounts converted to Decimal for
-          8-decimal precision. None becomes Decimal("0").
-        - Share type normalization: Any non-standard value defaults to "common".
-          Tracks this in autofilled if the original wasn't "common" or "preferred".
-        - Date auto-filling hierarchy:
-          - decision_date: defaults to upload_date - 1 month (or today - 1 month if
-            upload_date unavailable)
-          - record_date: defaults to decision_date - 1 month
-          - payment_date: defaults to decision_date + 1 day (if amount=0) or
-            decision_date + 2 months (if amount>0)
-        - Period normalization:
-          - period_type: defaults to "annual" if missing or invalid
-          - period_number: defaults to 1 if missing
-          - period_year: defaults to decision_date.year if missing
-        - Validation: Calls _validate_and_correct_dates to enforce date ordering.
-          If validation fails, applies fallback corrections (payment_date and
-          record_date adjustments) and retries validation.
-        - All auto-filled fields are tracked in the returned list for audit purposes.
+    Raises:
+        ValueError: If a required non-date dividend fact is absent or unsupported.
     """
-    autofilled: list[str] = []
+    del upload_date
+    warnings: list[str] = []
 
-    decision_date = _parse_iso_date(raw.decision_date)
-    record_date = _parse_iso_date(raw.record_date)
-    payment_date = _parse_iso_date(raw.payment_date)
-    amount = Decimal(str(raw.amount_per_share)) if raw.amount_per_share is not None else Decimal("0")
+    share_type = _normalize_share_type(raw.share_type)
+    if share_type is None and raw.share_type is None:
+        share_type = "common"
+        warnings.append("share_type_defaulted")
+    elif share_type is None:
+        raise ValueError("share_type must be common or preferred")
 
-    share_type = raw.share_type if raw.share_type in {"common", "preferred"} else "common"
-    if raw.share_type not in {"common", "preferred"}:
-        autofilled.append("share_type")
+    period_type = _normalize_period_type(raw.period_type)
+    if period_type is None and raw.period_type is None:
+        period_type = "annual"
+        warnings.append("period_type_defaulted")
+    elif period_type is None:
+        raise ValueError("period_type must be annual, halfyear, or quarterly")
 
-    if decision_date is None:
-        base = _parse_iso_date(upload_date) or datetime.now(UTC).date()
-        decision_date = _shift_months(base, -1)
-        autofilled.append("decision_date")
-    if record_date is None:
-        record_date = _shift_months(decision_date, -1)
-        autofilled.append("record_date")
-    if payment_date is None:
-        if amount == 0:
-            payment_date = decision_date.fromordinal(decision_date.toordinal() + 1)
-        else:
-            payment_date = _shift_months(decision_date, 2)
-        autofilled.append("payment_date")
-
-    period_type = raw.period_type if raw.period_type in {"annual", "halfyear", "quarterly"} else "annual"
-    period_number = raw.period_number if raw.period_number is not None else 1
-    period_year = raw.period_year if raw.period_year is not None else decision_date.year
-
-    if raw.period_type is None:
-        autofilled.append("period_type")
-    if raw.period_number is None:
-        autofilled.append("period_number")
-    if raw.period_year is None:
-        autofilled.append("period_year")
+    period_number = raw.period_number
+    if period_number is None:
+        period_number = 1
+        warnings.append("period_number_defaulted")
     if raw.amount_per_share is None:
-        autofilled.append("amount_per_share")
+        raise ValueError("amount_per_share is required")
 
-    period_year, decision_date, record_date, payment_date = _validate_and_correct_dates(
-        period_type=period_type,
+    decision_date, warning = _normalize_iso_date(raw.decision_date, "decision_date")
+    if warning:
+        warnings.append(warning)
+    record_date, warning = _normalize_iso_date(raw.record_date, "record_date")
+    if warning:
+        warnings.append(warning)
+    payment_date, warning = _normalize_iso_date(raw.payment_date, "payment_date")
+    if warning:
+        warnings.append(warning)
+
+    period_year = raw.period_year
+    if period_year is None:
+        if decision_date is None:
+            raise ValueError("period_year requires a document date")
+        period_year = decision_date.year - 1 if period_type == "annual" else decision_date.year
+        warnings.append("period_year_defaulted")
+
+    if decision_date is not None and record_date is not None and record_date > decision_date:
+        record_date = None
+        warnings.append("record_date_after_decision_date")
+    if decision_date is not None and payment_date is not None and payment_date <= decision_date:
+        payment_date = None
+        warnings.append("payment_date_not_after_decision_date")
+
+    dividend = EpfrDividendEntry(
+        share_type=share_type,
         period_year=period_year,
+        period_type=period_type,
+        period_number=period_number,
+        amount_per_share=Decimal(str(raw.amount_per_share)),
         decision_date=decision_date,
         record_date=record_date,
         payment_date=payment_date,
-        autofilled=autofilled,
     )
+    return dividend, warnings
 
-    try:
-        normalized = EpfrDividendEntry(
-            share_type=cast(ShareType, share_type),
-            period_year=period_year,
-            period_type=cast(PeriodType, period_type),
-            period_number=period_number,
-            amount_per_share=amount,
-            decision_date=decision_date,
-            record_date=record_date,
-            payment_date=payment_date,
+
+def _deduplicate_dividends(dividends: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Remove duplicate facts and retain the final deadline for repeated payouts.
+
+    The prompt defines the latest applicable deadline as the stored payment date.
+    Repeated entries with identical share, period, and amount therefore collapse
+    to the entry with the latest explicit payment date.
+    """
+    exact_unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    warnings: list[str] = []
+
+    for dividend in dividends:
+        fingerprint = json.dumps(dividend, ensure_ascii=False, sort_keys=True)
+        if fingerprint in seen:
+            if "duplicate_dividend_entries_removed" not in warnings:
+                warnings.append("duplicate_dividend_entries_removed")
+            continue
+        seen.add(fingerprint)
+        exact_unique.append(dividend)
+
+    grouped: dict[tuple[str, int, str, int, str], list[dict[str, Any]]] = {}
+    for dividend in exact_unique:
+        identity = (
+            str(dividend["share_type"]),
+            int(dividend["period_year"]),
+            str(dividend["period_type"]),
+            int(dividend["period_number"]),
+            str(dividend["amount_per_share"]),
         )
-    except ValidationError:
-        if payment_date <= decision_date:
-            payment_date = date.fromordinal(decision_date.toordinal() + 1)
-            autofilled.append("payment_date_corrected")
-        if decision_date < record_date:
-            record_date = decision_date
-            autofilled.append("record_date_corrected")
-        normalized = EpfrDividendEntry(
-            share_type=cast(ShareType, share_type),
-            period_year=period_year,
-            period_type=cast(PeriodType, period_type),
-            period_number=period_number,
-            amount_per_share=amount,
-            decision_date=decision_date,
-            record_date=record_date,
-            payment_date=payment_date,
-        )
-    return normalized, autofilled
+        grouped.setdefault(identity, []).append(dividend)
+
+    unique: list[dict[str, Any]] = []
+    for candidates in grouped.values():
+        if len(candidates) == 1:
+            unique.append(candidates[0])
+            continue
+        if "conflicting_dividend_entries_resolved" not in warnings:
+            warnings.append("conflicting_dividend_entries_resolved")
+        unique.append(max(candidates, key=lambda entry: (entry["payment_date"] or "", entry["decision_date"] or "")))
+
+    return unique, warnings
 
 
 async def run_ai_distillation(input: EpfrAiDistillerInput) -> dict[str, Any]:
@@ -707,37 +671,32 @@ async def run_ai_distillation(input: EpfrAiDistillerInput) -> dict[str, Any]:
                 )
 
                 raw_extraction = await distiller.extract_with_retry(md_content, input.max_retries, md_path)
-                extraction = EpfrDividendExtraction(
-                    has_dividends=raw_extraction.has_dividends,
-                    ai_comment=raw_extraction.ai_comment,
-                    dividends=[],
-                )
+                dividends: list[dict[str, Any]] = []
+                warnings: list[str] = []
+                for raw_div in raw_extraction.dividends:
+                    try:
+                        normalized, entry_warnings = normalize_and_fill_dividend(raw_div, distilled_file.upload_date)
+                    except ValueError as exc:
+                        warnings.append(f"invalid_dividend_entry: {exc}")
+                        continue
+                    dividends.append(normalized.model_dump(mode="json"))
+                    warnings.extend(entry_warnings)
 
-                autofilled_fields: list[str] = []
-                if raw_extraction.dividends:
-                    logger.info(
-                        f"  [{company_index}.{file_index}] AI returned dividend entries: {len(raw_extraction.dividends)}, comment={raw_extraction.ai_comment!r}"
-                    )
-                    for div_idx, raw_div in enumerate(raw_extraction.dividends):
-                        normalized, filled = normalize_and_fill_dividend(raw_div, distilled_file.upload_date)
-                        extraction.dividends.append(normalized)
-                        autofilled_fields.extend(filled)
-                        if filled:
-                            logger.info(
-                                f"  [{company_index}.{file_index}] Dividend #{div_idx + 1} autofilled fields: {filled}"
-                            )
-                        logger.debug(
-                            f"  [{company_index}.{file_index}] Dividend #{div_idx + 1}: year={normalized.period_year}, type={normalized.period_type}, amount={normalized.amount_per_share}"
-                        )
-                else:
-                    logger.info(
-                        f"  [{company_index}.{file_index}] AI found no dividends: comment={raw_extraction.ai_comment!r}"
-                    )
+                dividends, deduplication_warnings = _deduplicate_dividends(dividends)
+                warnings.extend(deduplication_warnings)
+                extraction = EpfrDividendExtraction(
+                    has_dividends=any(Decimal(dividend["amount_per_share"]) > 0 for dividend in dividends),
+                    ai_comment=raw_extraction.ai_comment,
+                    dividends=[EpfrDividendEntry.model_validate(dividend) for dividend in dividends],
+                )
+                if extraction.has_dividends != raw_extraction.has_dividends:
+                    warnings.append("has_dividends_reconciled_from_amounts")
 
                 distilled_file.has_dividends = extraction.has_dividends
                 distilled_file.ai_comment = extraction.ai_comment
                 distilled_file.dividends = extraction.dividends
-                distilled_file.autofilled_fields = sorted(set(autofilled_fields))
+                distilled_file.autofilled_fields = []
+                distilled_file.warnings = sorted(set(warnings))
                 successful += 1
                 logger.info(
                     f"  [{company_index}.{file_index}] File processed successfully: {filename} (has_dividends={extraction.has_dividends})"

@@ -495,6 +495,31 @@ class TestEpfrSharePayoutExportRow:
             )
 
 
+def test_dividend_and_export_rows_preserve_unknown_dates_as_null():
+    """Unknown source dates must remain nullable through the export contract."""
+    dividend = EpfrDividendEntry(
+        share_type="common",
+        period_year=2025,
+        period_type="annual",
+        period_number=1,
+        amount_per_share=Decimal("0.5"),
+    )
+    row = EpfrSharePayoutExportRow(
+        share_uuid="share-1",
+        period_year=dividend.period_year,
+        period_type=dividend.period_type,
+        period_number=dividend.period_number,
+        amount_per_share=dividend.amount_per_share,
+        decision_date=dividend.decision_date,
+        record_date=dividend.record_date,
+        payment_date=dividend.payment_date,
+    )
+
+    assert row.model_dump(mode="json")["decision_date"] is None
+    assert row.model_dump(mode="json")["record_date"] is None
+    assert row.model_dump(mode="json")["payment_date"] is None
+
+
 class TestEpfrSharePayoutExportInput:
     """Tests for the share payout export workflow input model."""
 

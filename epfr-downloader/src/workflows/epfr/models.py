@@ -273,9 +273,9 @@ class EpfrDividendEntry(BaseModel):
     period_type: PeriodType
     period_number: int = Field(..., ge=1)
     amount_per_share: Decimal = Field(..., ge=Decimal("0"), max_digits=20, decimal_places=8)
-    decision_date: date
-    record_date: date
-    payment_date: date
+    decision_date: date | None = None
+    record_date: date | None = None
+    payment_date: date | None = None
 
     @field_validator("amount_per_share", mode="before")
     @classmethod
@@ -292,9 +292,9 @@ class EpfrDividendEntry(BaseModel):
             raise ValueError("period_number must be 1 or 2 for halfyear period_type")
         if self.period_type == "quarterly" and self.period_number not in {1, 2, 3, 4}:
             raise ValueError("period_number must be between 1 and 4 for quarterly period_type")
-        if self.decision_date < self.record_date:
+        if self.decision_date is not None and self.record_date is not None and self.decision_date < self.record_date:
             raise ValueError("decision_date must be greater than or equal to record_date")
-        if self.payment_date <= self.decision_date:
+        if self.payment_date is not None and self.decision_date is not None and self.payment_date <= self.decision_date:
             raise ValueError("payment_date must be greater than decision_date")
         return self
 
@@ -321,6 +321,7 @@ class EpfrAiDistilledFile(BaseModel):
     ai_comment: str = ""
     dividends: list[EpfrDividendEntry] = Field(default_factory=list)
     autofilled_fields: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -344,6 +345,7 @@ class EpfrAiDistillerInput(BaseModel):
     max_retries: int | None = Field(
         default=None, ge=0, description="Maximum retry attempts for transient AI call failures"
     )
+    max_tokens: int | None = Field(default=None, ge=256, description="Maximum AI response tokens per document")
     file_delay_seconds: float | None = Field(
         default=None, ge=0.0, description="Delay between sequential file processing operations"
     )
@@ -425,6 +427,7 @@ class AiDistillerScanResult(BaseModel):
     model_name: str
     temperature: float
     max_retries: int
+    max_tokens: int = 4000
     file_delay_seconds: float
 
 
@@ -452,6 +455,7 @@ class AiDistillerFileResult(BaseModel):
     ai_comment: str
     dividends: list[dict[str, Any]]
     autofilled_fields: list[str]
+    warnings: list[str] = Field(default_factory=list)
     error: str | None = None
     file_id: int
 
@@ -548,9 +552,9 @@ class EpfrSharePayoutExportRow(BaseModel):
     period_type: PeriodType
     period_number: int = Field(..., ge=1)
     amount_per_share: Decimal = Field(..., ge=Decimal("0"), max_digits=20, decimal_places=8)
-    decision_date: date
-    record_date: date
-    payment_date: date
+    decision_date: date | None = None
+    record_date: date | None = None
+    payment_date: date | None = None
 
     @field_validator("amount_per_share", mode="before")
     @classmethod
@@ -572,9 +576,9 @@ class EpfrSharePayoutExportRow(BaseModel):
             raise ValueError("period_number must be 1 or 2 for halfyear period_type")
         if self.period_type == "quarterly" and self.period_number not in {1, 2, 3, 4}:
             raise ValueError("period_number must be between 1 and 4 for quarterly period_type")
-        if self.decision_date < self.record_date:
+        if self.decision_date is not None and self.record_date is not None and self.decision_date < self.record_date:
             raise ValueError("decision_date must be greater than or equal to record_date")
-        if self.payment_date <= self.decision_date:
+        if self.payment_date is not None and self.decision_date is not None and self.payment_date <= self.decision_date:
             raise ValueError("payment_date must be greater than decision_date")
         return self
 

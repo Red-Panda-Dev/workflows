@@ -30,6 +30,10 @@ Do not use `{{REFERENCE_DATE}}` to invent document facts.
 
 Return JSON only.
 
+Keep `ai_comment` under 300 characters and return at most 8 distinct dividend entries. Never repeat an identical entry.
+
+Every date field must contain only an ISO date (`YYYY-MM-DD`) or `null`. Do not put calculations, explanations, timestamps, punctuation, or JSON fragments in a date field; put concise reasoning only in `ai_comment`.
+
 Return exactly one JSON object with this shape:
 
 ```json
@@ -894,6 +898,8 @@ Before returning JSON, verify:
 17. Zero-dividend entries in mixed positive+zero documents do not blindly inherit positive payout deadlines.
 18. Monthly-after-period formulas do not add an extra month beyond the stated number of months.
 19. `ai_comment` is short and explains any ambiguity.
+20. `ai_comment` is at most 300 characters and `dividends` has at most 8 distinct entries.
+21. Date fields contain only ISO dates or `null`, never explanations or JSON fragments.
 
 ---
 

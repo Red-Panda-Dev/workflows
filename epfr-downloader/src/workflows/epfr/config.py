@@ -43,6 +43,7 @@ class ResolvedAiDistillerInput(TypedDict):
     model_name: str
     temperature: float
     max_retries: int
+    max_tokens: int
     file_delay_seconds: float
 
 
@@ -87,6 +88,7 @@ class EpfrConfig:
     ai_temperature: float
     ai_timeout: int
     ai_max_retries: int
+    ai_max_tokens: int
     ai_retry_backoff_base: int
     ai_retry_backoff_max: int
     ai_retry_backoff_max_429: int
@@ -137,6 +139,7 @@ EPFR_DEFAULTS = EpfrConfig(
     ai_temperature=0.0,
     ai_timeout=60,
     ai_max_retries=3,
+    ai_max_tokens=4000,
     ai_retry_backoff_base=2,
     ai_retry_backoff_max=30,
     ai_retry_backoff_max_429=90,
@@ -182,6 +185,7 @@ _ENV_FIELDS: list[tuple[str, type, str, str | None]] = [
     ("ai_temperature", float, "EPFR_AI_TEMPERATURE", "non_negative_float"),
     ("ai_timeout", int, "EPFR_AI_TIMEOUT", "positive_int"),
     ("ai_max_retries", int, "EPFR_AI_MAX_RETRIES", "positive_int"),
+    ("ai_max_tokens", int, "EPFR_AI_MAX_TOKENS", "positive_int"),
     ("ai_retry_backoff_base", int, "EPFR_AI_RETRY_BACKOFF_BASE", "positive_int"),
     ("ai_retry_backoff_max", int, "EPFR_AI_RETRY_BACKOFF_MAX", "positive_int"),
     ("ai_retry_backoff_max_429", int, "EPFR_AI_RETRY_BACKOFF_MAX_429", "positive_int"),
@@ -328,6 +332,7 @@ def resolve_ai_distiller_input(
     model_name: str | None = None,
     temperature: float | None = None,
     max_retries: int | None = None,
+    max_tokens: int | None = None,
     file_delay_seconds: float | None = None,
 ) -> ResolvedAiDistillerInput:
     """Resolve EpfrAiDistillerInput kwargs from env config when omitted."""
@@ -339,6 +344,7 @@ def resolve_ai_distiller_input(
         "model_name": model_name if model_name is not None else cfg.ai_model,
         "temperature": temperature if temperature is not None else cfg.ai_temperature,
         "max_retries": max_retries if max_retries is not None else cfg.ai_max_retries,
+        "max_tokens": max_tokens if max_tokens is not None else cfg.ai_max_tokens,
         "file_delay_seconds": file_delay_seconds if file_delay_seconds is not None else float(cfg.ai_file_delay),
     }
 
@@ -380,6 +386,7 @@ AI_MODEL: str = EPFR_DEFAULTS.ai_model
 AI_TEMPERATURE: float = EPFR_DEFAULTS.ai_temperature
 AI_TIMEOUT: int = EPFR_DEFAULTS.ai_timeout
 AI_MAX_RETRIES: int = EPFR_DEFAULTS.ai_max_retries
+AI_MAX_TOKENS: int = EPFR_DEFAULTS.ai_max_tokens
 AI_RETRY_BACKOFF_BASE: int = EPFR_DEFAULTS.ai_retry_backoff_base
 AI_RETRY_BACKOFF_MAX: int = EPFR_DEFAULTS.ai_retry_backoff_max
 AI_RETRY_BACKOFF_MAX_429: int = EPFR_DEFAULTS.ai_retry_backoff_max_429
