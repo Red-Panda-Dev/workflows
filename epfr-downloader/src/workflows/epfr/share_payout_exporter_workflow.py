@@ -7,6 +7,8 @@ The workflow is split into 4 activities for UI progress tracking:
 4. generate_share_payout_sql - Generate SQL INSERT statements from JSON output
 """
 
+import calendar
+from datetime import date
 from decimal import Decimal
 import json
 import json as json_mod
@@ -30,6 +32,24 @@ from .share_payout_exporter import _make_csv_key, load_share_reference_index
 
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_record_date(record_date: str | None, decision_date: str | None) -> str:
+    """Return an explicit record date or derive it one month before the decision.
+
+    This preserves compatibility with distilled artifacts generated before date
+    normalization filled missing dates and prevents SQL for a non-null database
+    column from containing ``NULL``.
+    """
+    if record_date:
+        return record_date
+    if not decision_date:
+        raise ValueError("record_date is missing and cannot be calculated without decision_date")
+
+    decision = date.fromisoformat(decision_date)
+    month = decision.month - 1 or 12
+    year = decision.year if decision.month > 1 else decision.year - 1
+    return date(year, month, min(decision.day, calendar.monthrange(year, month)[1])).isoformat()
 
 
 # =============================================================================
@@ -341,7 +361,7 @@ async def generate_share_payout_sql(
             return f"'{value}'"
         return str(value)
 
-    def generate_values_row(record: dict) -> str:
+    def generate_values_row(record: dict, record_date_value: str) -> str:
         """Generate a single VALUES row from a dividend record."""
         share_uuid = format_value(record.get("share_uuid"), is_string=True)
         period_year = format_value(record.get("period_year"))
@@ -349,7 +369,7 @@ async def generate_share_payout_sql(
         period_number = format_value(record.get("period_number"))
         amount_per_share = format_value(record.get("amount_per_share"))
         decision_date = format_value(record.get("decision_date"), is_string=True)
-        record_date = format_value(record.get("record_date"), is_string=True)
+        record_date = format_value(record_date_value, is_string=True)
         payment_date = format_value(record.get("payment_date"), is_string=True)
 
         return (
@@ -363,6 +383,7 @@ async def generate_share_payout_sql(
 
     for _unp, payouts in data.items():
         for record in payouts:
+            resolved_record_date = _resolve_record_date(record.get("record_date"), record.get("decision_date"))
             key = (
                 record.get("share_uuid"),
                 record.get("period_year"),
@@ -370,13 +391,13 @@ async def generate_share_payout_sql(
                 record.get("period_number"),
                 record.get("amount_per_share"),
                 record.get("decision_date"),
-                record.get("record_date"),
+                resolved_record_date,
                 record.get("payment_date"),
             )
             if key in seen:
                 continue
             seen.add(key)
-            rows.append(generate_values_row(record))
+            rows.append(generate_values_row(record, resolved_record_date))
 
     values_block = ",\n".join(rows)
 

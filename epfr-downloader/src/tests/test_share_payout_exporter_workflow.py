@@ -1185,7 +1185,7 @@ class TestGenerateSharePayoutSql:
         assert "uuid-b" in sql_text
 
     @pytest.mark.anyio
-    async def test_handles_null_values(self, tmp_path):
+    async def test_calculates_missing_record_date_for_legacy_exports(self, tmp_path):
         export_data = {
             "100000001": [
                 {
@@ -1209,7 +1209,8 @@ class TestGenerateSharePayoutSql:
 
         sql_text = (tmp_path / "share_dividends_insert.sql").read_text(encoding="utf-8")
         values_line = [line for line in sql_text.splitlines() if "uuid-null" in line][0]
-        assert "NULL" in values_line
+        assert "NULL" not in values_line
+        assert "'2025-12-15'" in values_line
 
     @pytest.mark.anyio
     async def test_handles_empty_export_json(self, tmp_path):
